@@ -1,57 +1,49 @@
 
 
-# Plano: Completar pedido com valores, pagamento e corrigir copia WhatsApp
+# Plano: Comissoes por canal, exclusao de pedido e explicacao SuperFrete
 
-## 3 problemas + 1 pergunta
+## 1. Vendedores — Comissoes independentes por canal (WhatsApp e Site)
 
-### 1. Copia WhatsApp nao inclui tamanho e cor
-**Arquivo:** `src/pages/Pedidos.tsx` linha 99-101
+**Migration:** Adicionar colunas na tabela `vendedores`:
+```sql
+ALTER TABLE public.vendedores 
+  ADD COLUMN taxa_comissao_site numeric NOT NULL DEFAULT 10.00,
+  ADD COLUMN taxa_comissao_whatsapp numeric NOT NULL DEFAULT 10.00;
+```
+A coluna `taxa_comissao` existente sera mantida como fallback/legado.
 
-Hoje: `2x Scrub Samara, 2x Scrub Samara`
-Corrigir para: `2x Scrub Samara (Lilás) GG (46), 2x Scrub Samara (Rosa) M (42)`
+**`src/pages/Vendedores.tsx`:**
+- Na tabela, trocar coluna unica "Comissao" por duas: "Comissao Site" e "Comissao WhatsApp"
+- No formulario de criar/editar, dois campos separados: "Comissao Site (%)" e "Comissao WhatsApp (%)"
 
-Alterar o `pedidoDesc` para incluir cor e tamanho de cada item.
+**`src/hooks/useVendedores.ts`:** Nenhuma mudanca necessaria (ja usa generic insert/update).
 
-### 2. Valor bruto zerado — auto-calcular a partir dos precos dos produtos
+**`src/pages/PedidoDetalhe.tsx` e `src/pages/NovoPedido.tsx`:**
+- Ao calcular comissao, usar `taxa_comissao_site` ou `taxa_comissao_whatsapp` conforme a `origem` do pedido ("site" ou "whatsapp")
 
-**Migration:** Adicionar coluna `preco_unitario numeric` na tabela `pedido_itens` para guardar o preco de cada item.
+**`src/integrations/supabase/types.ts`:** Atualizar tipos para incluir as novas colunas.
 
-**`src/pages/NovoPedido.tsx`:**
-- Ao selecionar produto no combobox, guardar `price` do produto Nuvemshop no item
-- Calcular `valor_bruto` automaticamente: soma de `quantidade * preco_unitario` de todos os itens
-- Exibir preco unitario ao lado de cada item
-- O usuario pode ainda editar o valor bruto manualmente se quiser
-
-**`src/pages/PedidoDetalhe.tsx`:**
-- Exibir preco unitario de cada item na lista de itens
-
-### 3. Campos de pagamento
-
-**Migration:** Adicionar colunas na tabela `pedidos`:
-- `forma_pagamento text` (PIX, Cartao de Credito, etc.)
-- `parcelas integer default 1`
-
-O campo `status_pagamento` ja existe (default 'pendente').
-
-**`src/pages/NovoPedido.tsx`:**
-- Adicionar Select para status de pagamento: "Pendente" / "Recebido"
-- Adicionar Select para forma de pagamento: "PIX" / "Cartao de Credito"
-- Se cartao, mostrar campo de parcelas (1x a 12x)
-- Pedido com status "recebido" vai para a aba principal
+## 2. Botao de exclusao de pedido
 
 **`src/pages/PedidoDetalhe.tsx`:**
-- Exibir e permitir editar status de pagamento e forma de pagamento
+- Adicionar botao "Excluir Pedido" (vermelho, com icone Trash2) no header do pedido
+- Ao clicar, abrir AlertDialog perguntando "Tem certeza que deseja excluir este pedido?"
+- Se confirmar, deleta o pedido via Supabase e redireciona para `/pedidos`
 
-### 4. SuperFrete — como funciona
+**`src/hooks/usePedidos.ts`:** Adicionar hook `useDeletePedido` (mutation que deleta da tabela `pedidos`).
 
-A integracao ja esta implementada. Funciona assim:
-- Quando um pedido tem `rastreio_codigo` ou `superfrete_order_id`, o botao "Consultar SuperFrete" na tela do pedido consulta a API
-- Se o pacote foi entregue, atualiza automaticamente a etapa para "Entregue" e preenche `data_entrega`
-- Para pedidos do WhatsApp, o codigo de rastreio precisa ser preenchido manualmente no pedido (ou vira do SuperFrete se o envio for feito por la)
+## 3. SuperFrete — como funciona
 
-### Arquivos afetados
-- `src/pages/Pedidos.tsx` — corrigir copia WhatsApp com tamanho/cor
-- `src/pages/NovoPedido.tsx` — preco unitario, calculo automatico valor bruto, campos pagamento
-- `src/pages/PedidoDetalhe.tsx` — exibir preco unitario, status/forma pagamento
-- Migration SQL — `preco_unitario` em `pedido_itens`, `forma_pagamento` e `parcelas` em `pedidos`
+Sobre a pergunta do usuario, responderei diretamente no chat:
+
+- **Rastreio e entrega:** A Edge Function `superfrete-tracking` ja esta implementada. Quando um pedido tem `rastreio_codigo` ou `superfrete_order_id`, o botao "Consultar SuperFrete" chama a API do SuperFrete, busca o status de rastreio e, se entregue, atualiza `data_entrega` e etapa para "Entregue" automaticamente.
+- **Calculo de frete:** A API do SuperFrete permite calcular o valor do frete informando CEP de origem, CEP de destino, peso e dimensoes do pacote. Porem, para isso funcionar no formulario de novo pedido, seria necessario cadastrar peso/dimensoes dos produtos — que nao temos hoje. Por enquanto o frete permanece manual. Se o usuario quiser, podemos adicionar campos de peso/dimensao nos produtos futuramente.
+
+## Arquivos afetados
+- Migration SQL — novas colunas `taxa_comissao_site` e `taxa_comissao_whatsapp` em `vendedores`
+- `src/integrations/supabase/types.ts` — atualizar tipos
+- `src/pages/Vendedores.tsx` — formulario e tabela com comissoes por canal
+- `src/pages/PedidoDetalhe.tsx` — botao excluir pedido, usar comissao por canal
+- `src/pages/NovoPedido.tsx` — usar comissao por canal ao salvar
+- `src/hooks/usePedidos.ts` — adicionar `useDeletePedido`
 
