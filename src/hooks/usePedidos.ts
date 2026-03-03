@@ -19,6 +19,22 @@ export function usePedidos() {
   });
 }
 
+export type PedidoComItens = Pedido & { pedido_itens: PedidoItem[] };
+
+export function usePedidosComItens() {
+  return useQuery({
+    queryKey: ["pedidos-com-itens"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("pedidos")
+        .select("*, pedido_itens(*)")
+        .order("data_pedido", { ascending: false });
+      if (error) throw error;
+      return data as PedidoComItens[];
+    },
+  });
+}
+
 export function usePedido(id: string | undefined) {
   return useQuery({
     queryKey: ["pedidos", id],

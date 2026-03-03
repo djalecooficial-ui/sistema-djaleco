@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useState } from "react";
 import { format, subMonths } from "date-fns";
@@ -43,11 +44,6 @@ function usePagarmeExtrato(params: { year?: string; month?: string; start_date?:
       if (params.start_date) query.set("start_date", params.start_date);
       if (params.end_date) query.set("end_date", params.end_date);
 
-      const { data, error } = await supabase.functions.invoke("pagarme-extrato", {
-        body: null,
-        headers: {},
-      });
-      // Use fetch directly since invoke doesn't support query params well
       const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/pagarme-extrato?${query.toString()}`,
@@ -61,14 +57,24 @@ function usePagarmeExtrato(params: { year?: string; month?: string; start_date?:
 }
 
 const STATUS_MAP: Record<string, string> = {
-  paid: "Pago",
-  pending: "Pendente",
-  canceled: "Cancelado",
-  failed: "Falhou",
-  overpaid: "Pago a mais",
-  underpaid: "Pago a menos",
-  processing: "Processando",
+  paid: "Pago", pending: "Pendente", canceled: "Cancelado", failed: "Falhou",
+  overpaid: "Pago a mais", underpaid: "Pago a menos", processing: "Processando",
 };
+
+// Group charges by paid_at date for deposit reconciliation
+function groupByDeposit(charges: PagarmeCharge[]) {
+  const groups: Record<string, PagarmeCharge[]> = {};
+  for (const c of charges) {
+    const key = c.paid_at ? format(new Date(c.paid_at), "dd/MM/yyyy") : "Sem data";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(c);
+  }
+  return Object.entries(groups).sort(([a], [b]) => {
+    if (a === "Sem data") return 1;
+    if (b === "Sem data") return -1;
+    return b.localeCompare(a);
+  });
+}
 
 export default function Financeiro() {
   const { data: pedidos } = usePedidos();
@@ -84,6 +90,7 @@ export default function Financeiro() {
   const [pgMonth, setPgMonth] = useState(currentMonth);
   const [pgStartDate, setPgStartDate] = useState("");
   const [pgEndDate, setPgEndDate] = useState("");
+  const [pgSubTab, setPgSubTab] = useState<"pagos" | "pendentes">("pagos");
 
   const pagarmeParams = pgFilterType === "mes"
     ? { year: pgYear, month: pgMonth }
@@ -126,6 +133,11 @@ export default function Financeiro() {
     { value: "7", label: "Julho" }, { value: "8", label: "Agosto" }, { value: "9", label: "Setembro" },
     { value: "10", label: "Outubro" }, { value: "11", label: "Novembro" }, { value: "12", label: "Dezembro" },
   ];
+
+  // Separate pagarme charges
+  const chargesPagos = pagarmeData?.charges?.filter((c) => c.status === "paid") || [];
+  const chargesPendentes = pagarmeData?.charges?.filter((c) => c.status !== "paid") || [];
+  const depositGroups = groupByDeposit(chargesPagos);
 
   return (
     <AppLayout>
@@ -281,52 +293,109 @@ export default function Financeiro() {
               </div>
             )}
 
-            {/* Table */}
-            {pgLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-muted-foreground">Carregando extrato...</span>
-              </div>
-            ) : (
-              <Card className="overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Data</TableHead>
-                      <TableHead>Pedido</TableHead>
-                      <TableHead>Método</TableHead>
-                      <TableHead>Parcelas</TableHead>
-                      <TableHead className="text-right">Bruto</TableHead>
-                      <TableHead className="text-right">Taxa</TableHead>
-                      <TableHead className="text-right">Líquido</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {!pagarmeData?.charges?.length ? (
-                      <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Nenhuma transação encontrada no período</TableCell></TableRow>
-                    ) : (
-                      pagarmeData.charges.map((c) => (
-                        <TableRow key={c.id}>
-                          <TableCell className="text-sm">{c.created_at ? format(new Date(c.created_at), "dd/MM/yyyy") : "—"}</TableCell>
-                          <TableCell className="font-medium">{c.order_code || "—"}</TableCell>
-                          <TableCell className="text-sm capitalize">{c.payment_method}</TableCell>
-                          <TableCell className="text-sm">{c.installments}x</TableCell>
-                          <TableCell className="text-right text-sm">{formatCurrency(c.amount)}</TableCell>
-                          <TableCell className="text-right text-sm text-destructive">{formatCurrency(c.gateway_fee)}</TableCell>
-                          <TableCell className="text-right text-sm font-medium">{formatCurrency(c.paid_amount)}</TableCell>
-                          <TableCell>
-                            <Badge variant={c.status === "paid" ? "default" : "secondary"} className="text-xs">
-                              {STATUS_MAP[c.status] || c.status}
-                            </Badge>
-                          </TableCell>
+            {/* Sub-tabs: Pagos / Pendentes */}
+            <Tabs value={pgSubTab} onValueChange={(v) => setPgSubTab(v as "pagos" | "pendentes")}>
+              <TabsList>
+                <TabsTrigger value="pagos">Pagos ({chargesPagos.length})</TabsTrigger>
+                <TabsTrigger value="pendentes">Pendentes ({chargesPendentes.length})</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="pagos" className="mt-4">
+                {pgLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-muted-foreground">Carregando extrato...</span>
+                  </div>
+                ) : depositGroups.length === 0 ? (
+                  <Card><CardContent className="py-8 text-center text-muted-foreground">Nenhuma transação paga no período</CardContent></Card>
+                ) : (
+                  <div className="space-y-4">
+                    {depositGroups.map(([depositDate, charges]) => {
+                      const totalGrupo = charges.reduce((s, c) => s + c.paid_amount, 0);
+                      const totalTaxaGrupo = charges.reduce((s, c) => s + c.gateway_fee, 0);
+                      return (
+                        <Card key={depositDate} className="overflow-hidden">
+                          <CardHeader className="pb-2 bg-muted/30">
+                            <div className="flex items-center justify-between">
+                              <CardTitle className="text-sm">Depósito: {depositDate}</CardTitle>
+                              <div className="flex gap-4 text-xs">
+                                <span>Líquido: <strong>{formatCurrency(totalGrupo)}</strong></span>
+                                <span className="text-destructive">Taxas: {formatCurrency(totalTaxaGrupo)}</span>
+                              </div>
+                            </div>
+                          </CardHeader>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Pedido</TableHead>
+                                <TableHead>Método</TableHead>
+                                <TableHead>Parcelas</TableHead>
+                                <TableHead className="text-right">Bruto</TableHead>
+                                <TableHead className="text-right">Taxa</TableHead>
+                                <TableHead className="text-right">Líquido</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {charges.map((c) => (
+                                <TableRow key={c.id}>
+                                  <TableCell className="font-medium">{c.order_code || "—"}</TableCell>
+                                  <TableCell className="text-sm capitalize">{c.payment_method}</TableCell>
+                                  <TableCell className="text-sm">{c.installments}x</TableCell>
+                                  <TableCell className="text-right text-sm">{formatCurrency(c.amount)}</TableCell>
+                                  <TableCell className="text-right text-sm text-destructive">{formatCurrency(c.gateway_fee)}</TableCell>
+                                  <TableCell className="text-right text-sm font-medium">{formatCurrency(c.paid_amount)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="pendentes" className="mt-4">
+                {pgLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <Card className="overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data</TableHead>
+                          <TableHead>Pedido</TableHead>
+                          <TableHead>Método</TableHead>
+                          <TableHead className="text-right">Bruto</TableHead>
+                          <TableHead className="text-right">Taxa</TableHead>
+                          <TableHead>Status</TableHead>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </Card>
-            )}
+                      </TableHeader>
+                      <TableBody>
+                        {chargesPendentes.length === 0 ? (
+                          <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Nenhuma transação pendente</TableCell></TableRow>
+                        ) : (
+                          chargesPendentes.map((c) => (
+                            <TableRow key={c.id}>
+                              <TableCell className="text-sm">{c.created_at ? format(new Date(c.created_at), "dd/MM/yyyy") : "—"}</TableCell>
+                              <TableCell className="font-medium">{c.order_code || "—"}</TableCell>
+                              <TableCell className="text-sm capitalize">{c.payment_method}</TableCell>
+                              <TableCell className="text-right text-sm">{formatCurrency(c.amount)}</TableCell>
+                              <TableCell className="text-right text-sm text-destructive">{formatCurrency(c.gateway_fee)}</TableCell>
+                              <TableCell>
+                                <Badge variant="secondary" className="text-xs">{STATUS_MAP[c.status] || c.status}</Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </Card>
+                )}
+              </TabsContent>
+            </Tabs>
           </>
         )}
       </div>

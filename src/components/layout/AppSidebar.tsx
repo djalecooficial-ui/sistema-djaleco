@@ -46,9 +46,9 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader className="p-4 flex items-center justify-center">
         {!collapsed ? (
-          <img src={djalecoLogo} alt="Djaleco" className="h-10 w-auto object-contain" />
+          <img src={djalecoLogo} alt="Djaleco" className="h-40 w-auto object-contain" />
         ) : (
-          <img src={djalecoLogo} alt="Djaleco" className="h-7 w-7 object-contain" />
+          <img src={djalecoLogo} alt="Djaleco" className="h-28 w-auto object-contain" />
         )}
       </SidebarHeader>
       <SidebarContent>
