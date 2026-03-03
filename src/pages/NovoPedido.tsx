@@ -7,15 +7,31 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { toast } from "sonner";
 import { useCreatePedido, useCreatePedidoItem, getNextZAPNumber } from "@/hooks/usePedidos";
-import { ClipboardPaste, Save, Trash2, Plus } from "lucide-react";
+import { ClipboardPaste, Save, Trash2, Plus, ChevronsUpDown, Check } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { cn } from "@/lib/utils";
+
+interface NuvemProduct {
+  id: number;
+  name: string;
+  colors: string[];
+  sizes: string[];
+  images: string[];
+}
 
 interface ItemForm {
   nome_produto: string;
   quantidade: number;
   tamanho: string;
   cor: string;
+  // track selected product for dropdowns
+  _product?: NuvemProduct;
 }
 
 function normalize(s: string) {
@@ -36,6 +52,7 @@ function matchLabel(label: string): string | null {
   if (/^(PEDIDO|ITENS|PRODUTOS|PRODUTO|ITEMS|ITEM)$/.test(n)) return "pedido";
   if (/^(VALOR|TOTAL|VALOR TOTAL|PRECO|PRECO TOTAL)$/.test(n)) return "valor";
   if (/^(FRETE|ENVIO|ENTREGA)$/.test(n)) return "frete";
+  if (/^(OBS|OBSERVA)/.test(n)) return "observacoes";
   return null;
 }
 
@@ -56,7 +73,6 @@ function parseWhatsApp(text: string) {
 
 function parseItens(pedidoStr: string): ItemForm[] {
   if (!pedidoStr) return [];
-  // Split by the pattern "Nx " which marks the start of each item
   const items: ItemForm[] = [];
   const regex = /(\d+)\s*x\s+/gi;
   const parts: { qty: number; start: number }[] = [];
@@ -68,17 +84,14 @@ function parseItens(pedidoStr: string): ItemForm[] {
     const end = i + 1 < parts.length ? pedidoStr.lastIndexOf(",", parts[i + 1].start) : pedidoStr.length;
     const raw = pedidoStr.substring(parts[i].start, end >= parts[i].start ? end : pedidoStr.length).trim().replace(/,\s*$/, "");
     if (!raw) continue;
-    // Try to extract color from parentheses and size pattern like "M (42)"
     let nome = raw;
     let cor = "";
     let tamanho = "";
-    // Match trailing size like "M (42)" or "P" or "GG"
     const sizeMatch = nome.match(/\s+(PP|P|M|G|GG|XG|XXG|EG|EGG)\s*(?:\((\d+)\))?\s*$/i);
     if (sizeMatch) {
       tamanho = sizeMatch[2] ? `${sizeMatch[1]} (${sizeMatch[2]})` : sizeMatch[1];
       nome = nome.substring(0, sizeMatch.index!).trim();
     }
-    // Match color in parentheses like "(Cinza Escuro)"
     const corMatch = nome.match(/\(([^)]+)\)\s*$/);
     if (corMatch) {
       cor = corMatch[1];
@@ -89,10 +102,23 @@ function parseItens(pedidoStr: string): ItemForm[] {
   return items.length ? items : [{ nome_produto: pedidoStr.trim(), quantidade: 1, tamanho: "", cor: "" }];
 }
 
+function useNuvemProducts() {
+  return useQuery<NuvemProduct[]>({
+    queryKey: ["nuvem-products"],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke("nuvemshop-products");
+      if (error) throw error;
+      return data?.products || [];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export default function NovoPedido() {
   const navigate = useNavigate();
   const createPedido = useCreatePedido();
   const createItem = useCreatePedidoItem();
+  const { data: products = [] } = useNuvemProducts();
 
   const [whatsappText, setWhatsappText] = useState("");
   const [clienteNome, setClienteNome] = useState("");
@@ -105,8 +131,10 @@ export default function NovoPedido() {
   const [documento, setDocumento] = useState("");
   const [valorBruto, setValorBruto] = useState("");
   const [frete, setFrete] = useState("");
+  const [observacoes, setObservacoes] = useState("");
   const [itens, setItens] = useState<ItemForm[]>([{ nome_produto: "", quantidade: 1, tamanho: "", cor: "" }]);
   const [saving, setSaving] = useState(false);
+  const [openCombobox, setOpenCombobox] = useState<number | null>(null);
 
   const handleParse = () => {
     if (!whatsappText.trim()) {
@@ -122,10 +150,13 @@ export default function NovoPedido() {
     if (parsed.estado) setEstado(parsed.estado);
     if (parsed.cep) setCep(parsed.cep);
     if (parsed.documento) setDocumento(parsed.documento);
+    if (parsed.observacoes) setObservacoes(parsed.observacoes);
     if (parsed.pedido) {
       const parsedItens = parseItens(parsed.pedido);
       if (parsedItens.length) setItens(parsedItens);
     }
+    if (parsed.valor) setValorBruto(parsed.valor.replace(/[^\d.,]/g, "").replace(",", "."));
+    if (parsed.frete) setFrete(parsed.frete.replace(/[^\d.,]/g, "").replace(",", "."));
     toast.success("Dados preenchidos a partir do WhatsApp!");
   };
 
@@ -139,6 +170,13 @@ export default function NovoPedido() {
 
   const handleItemChange = (idx: number, field: keyof ItemForm, value: string | number) => {
     setItens(itens.map((item, i) => i === idx ? { ...item, [field]: value } : item));
+  };
+
+  const handleSelectProduct = (idx: number, product: NuvemProduct) => {
+    setItens(itens.map((item, i) =>
+      i === idx ? { ...item, nome_produto: product.name, _product: product, tamanho: "", cor: "" } : item
+    ));
+    setOpenCombobox(null);
   };
 
   const handleSave = async () => {
@@ -169,7 +207,7 @@ export default function NovoPedido() {
         valor_liquido: (parseFloat(valorBruto) || 0) - (parseFloat(frete) || 0),
         etapa_producao: "Planejamento",
         data_pedido: new Date().toISOString(),
-      });
+      } as any);
 
       for (const item of itens.filter((i) => i.nome_produto.trim())) {
         await createItem.mutateAsync({
@@ -192,15 +230,15 @@ export default function NovoPedido() {
 
   return (
     <AppLayout>
-      <div className="space-y-6 max-w-3xl">
+      <div className="space-y-4 sm:space-y-6 max-w-3xl">
         <h1 className="text-xl sm:text-2xl font-bold text-foreground">Novo Pedido</h1>
 
         {/* WhatsApp paste area */}
-        <Card className="p-4 space-y-3">
+        <Card className="p-3 sm:p-4 space-y-3">
           <Label className="text-sm font-semibold">Colar dados do WhatsApp</Label>
           <Textarea
             placeholder={"NOME: João Silva\nCELULAR: (11) 99999-9999\nENDEREÇO COMPLETO: Rua X, 123\n..."}
-            rows={8}
+            rows={6}
             value={whatsappText}
             onChange={(e) => setWhatsappText(e.target.value)}
           />
@@ -213,8 +251,8 @@ export default function NovoPedido() {
         <Separator />
 
         {/* Form fields */}
-        <Card className="p-4 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Card className="p-3 sm:p-4 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="clienteNome">Nome do Cliente</Label>
               <Input id="clienteNome" value={clienteNome} onChange={(e) => setClienteNome(e.target.value)} />
@@ -258,60 +296,140 @@ export default function NovoPedido() {
           </div>
         </Card>
 
+        {/* Observações */}
+        <Card className="p-3 sm:p-4 space-y-2">
+          <Label htmlFor="observacoes" className="text-sm font-semibold">Observações</Label>
+          <Textarea
+            id="observacoes"
+            placeholder="Informações importantes sobre o pedido..."
+            rows={3}
+            value={observacoes}
+            onChange={(e) => setObservacoes(e.target.value)}
+          />
+        </Card>
+
         {/* Items */}
-        <Card className="p-4 space-y-4">
+        <Card className="p-3 sm:p-4 space-y-4">
           <div className="flex items-center justify-between">
             <Label className="text-sm font-semibold">Itens do Pedido</Label>
             <Button variant="outline" size="sm" onClick={handleAddItem}>
               <Plus className="h-4 w-4 mr-1" /> Item
             </Button>
           </div>
-          {itens.map((item, idx) => (
-            <div key={idx} className="grid grid-cols-[1fr_60px_80px_80px_32px] gap-2 items-end">
-              <div className="space-y-1">
-                {idx === 0 && <Label className="text-xs">Produto</Label>}
-                <Input
-                  placeholder="Nome do produto"
-                  value={item.nome_produto}
-                  onChange={(e) => handleItemChange(idx, "nome_produto", e.target.value)}
-                />
+
+          {itens.map((item, idx) => {
+            const selectedProduct = item._product || products.find(p => p.name === item.nome_produto);
+            const availableSizes = selectedProduct?.sizes || [];
+            const availableColors = selectedProduct?.colors || [];
+
+            return (
+              <div key={idx} className="border rounded-lg p-3 space-y-3">
+                {/* Product name - combobox */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Produto</Label>
+                  <Popover open={openCombobox === idx} onOpenChange={(open) => setOpenCombobox(open ? idx : null)}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        className="w-full justify-between font-normal h-10"
+                      >
+                        <span className="truncate">{item.nome_produto || "Selecionar produto..."}</span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[calc(100vw-3rem)] sm:w-[400px] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Buscar produto..." />
+                        <CommandList>
+                          <CommandEmpty>Nenhum produto encontrado</CommandEmpty>
+                          <CommandGroup>
+                            {products.map((p) => (
+                              <CommandItem
+                                key={p.id}
+                                value={p.name}
+                                onSelect={() => handleSelectProduct(idx, p)}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", item.nome_produto === p.name ? "opacity-100" : "opacity-0")} />
+                                {p.name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* Qty + Size + Color row */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Qtd</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={item.quantidade}
+                      onChange={(e) => handleItemChange(idx, "quantidade", parseInt(e.target.value) || 1)}
+                      className="h-9"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Tamanho</Label>
+                    {availableSizes.length > 0 ? (
+                      <Select value={item.tamanho} onValueChange={(v) => handleItemChange(idx, "tamanho", v)}>
+                        <SelectTrigger className="h-9"><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent>
+                          {availableSizes.map((s) => (
+                            <SelectItem key={s} value={s}>{s}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        placeholder="P, M..."
+                        value={item.tamanho}
+                        onChange={(e) => handleItemChange(idx, "tamanho", e.target.value)}
+                        className="h-9"
+                      />
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Cor</Label>
+                    {availableColors.length > 0 ? (
+                      <Select value={item.cor} onValueChange={(v) => handleItemChange(idx, "cor", v)}>
+                        <SelectTrigger className="h-9"><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent>
+                          {availableColors.map((c) => (
+                            <SelectItem key={c} value={c}>{c}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        placeholder="Cor"
+                        value={item.cor}
+                        onChange={(e) => handleItemChange(idx, "cor", e.target.value)}
+                        className="h-9"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Remove button */}
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-destructive"
+                    onClick={() => handleRemoveItem(idx)}
+                    disabled={itens.length <= 1}
+                  >
+                    <Trash2 className="h-3 w-3 mr-1" /> Remover
+                  </Button>
+                </div>
               </div>
-              <div className="space-y-1">
-                {idx === 0 && <Label className="text-xs">Qtd</Label>}
-                <Input
-                  type="number"
-                  min={1}
-                  value={item.quantidade}
-                  onChange={(e) => handleItemChange(idx, "quantidade", parseInt(e.target.value) || 1)}
-                />
-              </div>
-              <div className="space-y-1">
-                {idx === 0 && <Label className="text-xs">Tamanho</Label>}
-                <Input
-                  placeholder="P, M..."
-                  value={item.tamanho}
-                  onChange={(e) => handleItemChange(idx, "tamanho", e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                {idx === 0 && <Label className="text-xs">Cor</Label>}
-                <Input
-                  placeholder="Cor"
-                  value={item.cor}
-                  onChange={(e) => handleItemChange(idx, "cor", e.target.value)}
-                />
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9"
-                onClick={() => handleRemoveItem(idx)}
-                disabled={itens.length <= 1}
-              >
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
-            </div>
-          ))}
+            );
+          })}
         </Card>
 
         <div className="flex gap-3">

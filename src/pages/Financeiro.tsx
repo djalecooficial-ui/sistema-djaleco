@@ -11,8 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { useState } from "react";
-import { format, subMonths } from "date-fns";
+import { useState, useMemo } from "react";
+import { format, subMonths, parseISO, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { Check, Loader2, CalendarIcon, Pencil } from "lucide-react";
@@ -45,7 +45,6 @@ function usePagarmeExtrato(params: { year?: string; month?: string; start_date?:
       if (params.month) query.set("month", params.month);
       if (params.start_date) query.set("start_date", params.start_date);
       if (params.end_date) query.set("end_date", params.end_date);
-
       const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/pagarme-extrato?${query.toString()}`,
@@ -77,14 +76,31 @@ function groupByDeposit(charges: PagarmeCharge[]) {
   });
 }
 
+const MONTHS_LIST = [
+  { value: "all", label: "Todos" },
+  { value: "1", label: "Janeiro" }, { value: "2", label: "Fevereiro" }, { value: "3", label: "Março" },
+  { value: "4", label: "Abril" }, { value: "5", label: "Maio" }, { value: "6", label: "Junho" },
+  { value: "7", label: "Julho" }, { value: "8", label: "Agosto" }, { value: "9", label: "Setembro" },
+  { value: "10", label: "Outubro" }, { value: "11", label: "Novembro" }, { value: "12", label: "Dezembro" },
+];
+
 export default function Financeiro() {
   const { data: pedidos } = usePedidos();
   const { data: vendedores } = useVendedores();
   const updatePedido = useUpdatePedido();
   const [tab, setTab] = useState<"visao" | "comissoes" | "pagarme">("visao");
 
-  // Pagarme filters
+  // === Visão Geral filters ===
   const currentYear = new Date().getFullYear().toString();
+  const [visaoFilterType, setVisaoFilterType] = useState<"mes" | "custom">("mes");
+  const [visaoYear, setVisaoYear] = useState(currentYear);
+  const [visaoMonth, setVisaoMonth] = useState("all");
+  const [visaoStartDate, setVisaoStartDate] = useState("");
+  const [visaoEndDate, setVisaoEndDate] = useState("");
+  const [visaoVendedor, setVisaoVendedor] = useState("all");
+  const [visaoOrigem, setVisaoOrigem] = useState("all");
+
+  // Pagarme filters
   const currentMonth = (new Date().getMonth() + 1).toString();
   const [pgFilterType, setPgFilterType] = useState<"mes" | "custom">("mes");
   const [pgYear, setPgYear] = useState(currentYear);
@@ -93,7 +109,7 @@ export default function Financeiro() {
   const [pgEndDate, setPgEndDate] = useState("");
   const [pgSubTab, setPgSubTab] = useState<"pagos" | "pendentes">("pagos");
 
-  // Comissão inline edit state
+  // Comissão inline edit state — now edits percentage
   const [editingComissao, setEditingComissao] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
@@ -104,25 +120,65 @@ export default function Financeiro() {
   const { data: pagarmeData, isLoading: pgLoading } = usePagarmeExtrato(pagarmeParams);
 
   const allPedidos = pedidos || [];
-  const totalBruto = allPedidos.reduce((s, p) => s + Number(p.valor_bruto), 0);
-  const totalLiquido = allPedidos.reduce((s, p) => s + Number(p.valor_liquido), 0);
-  const totalFrete = allPedidos.reduce((s, p) => s + Number(p.frete), 0);
-  const totalTaxas = allPedidos.reduce((s, p) => s + Number(p.taxa_pagarme), 0);
-  const totalComissoes = allPedidos.reduce((s, p) => s + Number(p.comissao), 0);
+
+  // Filtered pedidos for Visão Geral
+  const filteredPedidos = useMemo(() => {
+    let filtered = [...allPedidos];
+
+    if (visaoFilterType === "mes") {
+      // Filter by year
+      filtered = filtered.filter(p => {
+        const d = new Date(p.data_pedido);
+        return d.getFullYear().toString() === visaoYear;
+      });
+      // Filter by month if not "all"
+      if (visaoMonth !== "all") {
+        filtered = filtered.filter(p => {
+          const d = new Date(p.data_pedido);
+          return (d.getMonth() + 1).toString() === visaoMonth;
+        });
+      }
+    } else {
+      // Custom date range
+      if (visaoStartDate) {
+        const start = new Date(visaoStartDate);
+        filtered = filtered.filter(p => new Date(p.data_pedido) >= start);
+      }
+      if (visaoEndDate) {
+        const end = new Date(visaoEndDate + "T23:59:59");
+        filtered = filtered.filter(p => new Date(p.data_pedido) <= end);
+      }
+    }
+
+    // Filter by vendedor
+    if (visaoVendedor !== "all") {
+      filtered = filtered.filter(p => p.vendedor_id === visaoVendedor);
+    }
+
+    // Filter by origem
+    if (visaoOrigem !== "all") {
+      filtered = filtered.filter(p => p.origem === visaoOrigem);
+    }
+
+    return filtered;
+  }, [allPedidos, visaoFilterType, visaoYear, visaoMonth, visaoStartDate, visaoEndDate, visaoVendedor, visaoOrigem]);
+
+  const totalBruto = filteredPedidos.reduce((s, p) => s + Number(p.valor_bruto), 0);
+  const totalLiquido = filteredPedidos.reduce((s, p) => s + Number(p.valor_liquido), 0);
+  const totalFrete = filteredPedidos.reduce((s, p) => s + Number(p.frete), 0);
+  const totalTaxas = filteredPedidos.reduce((s, p) => s + Number(p.taxa_pagarme), 0);
+  const totalComissoes = filteredPedidos.reduce((s, p) => s + Number(p.comissao), 0);
 
   const revenueByMonth: Record<string, number> = {};
-  const sixMonthsAgo = subMonths(new Date(), 6);
-  allPedidos
-    .filter((p) => new Date(p.data_pedido) >= sixMonthsAgo)
-    .forEach((p) => {
-      const key = format(new Date(p.data_pedido), "yyyy-MM");
-      revenueByMonth[key] = (revenueByMonth[key] || 0) + Number(p.valor_bruto);
-    });
+  filteredPedidos.forEach((p) => {
+    const key = format(new Date(p.data_pedido), "yyyy-MM");
+    revenueByMonth[key] = (revenueByMonth[key] || 0) + Number(p.valor_bruto);
+  });
   const chartData = Object.entries(revenueByMonth)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, valor]) => ({ name: format(new Date(month + "-01"), "MMM/yy", { locale: ptBR }), valor }));
 
-  // All pedidos with comissao (not just pending)
+  // All pedidos with comissao
   const comissoesTodas = allPedidos.filter((p) => Number(p.comissao) > 0);
 
   const handlePagarComissao = (pedidoId: string, date: Date) => {
@@ -132,14 +188,18 @@ export default function Financeiro() {
     );
   };
 
+  // Now saves percentage and recalculates value
   const handleSaveComissao = (pedidoId: string) => {
-    const val = parseFloat(editValue);
-    if (isNaN(val) || val < 0) {
-      toast.error("Valor inválido");
+    const percentual = parseFloat(editValue);
+    if (isNaN(percentual) || percentual < 0 || percentual > 100) {
+      toast.error("Percentual inválido (0-100)");
       return;
     }
+    const pedido = allPedidos.find(p => p.id === pedidoId);
+    if (!pedido) return;
+    const novaComissao = Number(pedido.valor_liquido) * (percentual / 100);
     updatePedido.mutate(
-      { id: pedidoId, comissao: val },
+      { id: pedidoId, comissao: novaComissao },
       {
         onSuccess: () => {
           toast.success("Comissão atualizada!");
@@ -161,6 +221,14 @@ export default function Financeiro() {
   const chargesPendentes = pagarmeData?.charges?.filter((c) => c.status !== "paid") || [];
   const depositGroups = groupByDeposit(chargesPagos);
 
+  // Helper: get current percentage for a pedido
+  const getPercentual = (p: typeof allPedidos[0]) => {
+    const liq = Number(p.valor_liquido);
+    const com = Number(p.comissao);
+    if (liq <= 0) return 0;
+    return Math.round((com / liq) * 100 * 100) / 100;
+  };
+
   return (
     <AppLayout>
       <div className="space-y-4 sm:space-y-6">
@@ -174,6 +242,52 @@ export default function Financeiro() {
 
         {tab === "visao" && (
           <>
+            {/* Filters */}
+            <Card className="p-3 sm:p-4">
+              <div className="flex flex-wrap items-end gap-2 sm:gap-3">
+                <div className="flex gap-2">
+                  <Button variant={visaoFilterType === "mes" ? "default" : "outline"} size="sm" onClick={() => setVisaoFilterType("mes")}>Por Mês</Button>
+                  <Button variant={visaoFilterType === "custom" ? "default" : "outline"} size="sm" onClick={() => setVisaoFilterType("custom")}>Personalizado</Button>
+                </div>
+
+                {visaoFilterType === "mes" ? (
+                  <div className="flex gap-2">
+                    <Select value={visaoYear} onValueChange={setVisaoYear}>
+                      <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+                      <SelectContent>{years.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Select value={visaoMonth} onValueChange={setVisaoMonth}>
+                      <SelectTrigger className="w-28 sm:w-36"><SelectValue /></SelectTrigger>
+                      <SelectContent>{MONTHS_LIST.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Input type="date" value={visaoStartDate} onChange={(e) => setVisaoStartDate(e.target.value)} className="w-36 sm:w-40" />
+                    <span className="text-muted-foreground text-sm">até</span>
+                    <Input type="date" value={visaoEndDate} onChange={(e) => setVisaoEndDate(e.target.value)} className="w-36 sm:w-40" />
+                  </div>
+                )}
+
+                <Select value={visaoVendedor} onValueChange={setVisaoVendedor}>
+                  <SelectTrigger className="w-32 sm:w-40"><SelectValue placeholder="Vendedor" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos vendedores</SelectItem>
+                    {vendedores?.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+
+                <Select value={visaoOrigem} onValueChange={setVisaoOrigem}>
+                  <SelectTrigger className="w-28"><SelectValue placeholder="Origem" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="site">Site</SelectItem>
+                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </Card>
+
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
               {[
                 { label: "Fat. Bruto", value: totalBruto },
@@ -242,6 +356,7 @@ export default function Financeiro() {
                       <TableHead>Pedido</TableHead>
                       <TableHead>Cliente</TableHead>
                       <TableHead>Vendedor</TableHead>
+                      <TableHead className="text-right">%</TableHead>
                       <TableHead className="text-right">Comissão</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Data Pagamento</TableHead>
@@ -250,11 +365,12 @@ export default function Financeiro() {
                   </TableHeader>
                   <TableBody>
                     {comissoesTodas.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
                     ) : (
                       comissoesTodas.map((p) => {
                         const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
                         const isEditing = editingComissao === p.id;
+                        const pct = getPercentual(p);
                         return (
                           <TableRow key={p.id}>
                             <TableCell className="font-medium">#{p.numero_pedido}</TableCell>
@@ -265,26 +381,28 @@ export default function Financeiro() {
                                 <div className="flex items-center gap-1 justify-end">
                                   <Input
                                     type="number"
+                                    step="0.1"
                                     value={editValue}
                                     onChange={(e) => setEditValue(e.target.value)}
-                                    className="w-24 h-7 text-xs"
+                                    className="w-20 h-7 text-xs"
                                     onKeyDown={(e) => e.key === "Enter" && handleSaveComissao(p.id)}
                                     autoFocus
                                   />
+                                  <span className="text-xs">%</span>
                                   <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => handleSaveComissao(p.id)}>
                                     <Check className="h-3 w-3" />
                                   </Button>
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-1 justify-end">
-                                  <span className="font-medium">{formatCurrency(Number(p.comissao))}</span>
+                                  <span className="text-sm">{pct}%</span>
                                   <Button
                                     size="sm"
                                     variant="ghost"
                                     className="h-6 w-6 p-0"
                                     onClick={() => {
                                       setEditingComissao(p.id);
-                                      setEditValue(String(Number(p.comissao)));
+                                      setEditValue(String(pct));
                                     }}
                                   >
                                     <Pencil className="h-3 w-3" />
@@ -292,6 +410,7 @@ export default function Financeiro() {
                                 </div>
                               )}
                             </TableCell>
+                            <TableCell className="text-right font-medium">{formatCurrency(Number(p.comissao))}</TableCell>
                             <TableCell>
                               <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-xs">
                                 {p.comissao_paga ? "Pago" : "Pendente"}
@@ -333,6 +452,8 @@ export default function Financeiro() {
             <div className="sm:hidden space-y-3">
               {comissoesTodas.map((p) => {
                 const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
+                const isEditing = editingComissao === p.id;
+                const pct = getPercentual(p);
                 return (
                   <Card key={p.id} className="p-3 space-y-2">
                     <div className="flex items-center justify-between">
@@ -343,11 +464,56 @@ export default function Financeiro() {
                     </div>
                     <p className="text-xs text-muted-foreground">{p.cliente_nome} · {vendedorItem?.nome || "—"}</p>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold">{formatCurrency(Number(p.comissao))}</span>
-                      {!p.comissao_paga && (
-                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handlePagarComissao(p.id, new Date())}>
-                          <Check className="h-3 w-3 mr-1" />Pagar Hoje
-                        </Button>
+                      {isEditing ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            className="w-16 h-7 text-xs"
+                            onKeyDown={(e) => e.key === "Enter" && handleSaveComissao(p.id)}
+                            autoFocus
+                          />
+                          <span className="text-xs">%</span>
+                          <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => handleSaveComissao(p.id)}>
+                            <Check className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold">{formatCurrency(Number(p.comissao))}</span>
+                          <span className="text-xs text-muted-foreground">({pct}%)</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0"
+                            onClick={() => {
+                              setEditingComissao(p.id);
+                              setEditValue(String(pct));
+                            }}
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+                      {!p.comissao_paga && !isEditing && (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button size="sm" variant="outline" className="h-7 text-xs">
+                              <CalendarIcon className="h-3 w-3 mr-1" />Pagar
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="end">
+                            <Calendar
+                              mode="single"
+                              selected={new Date()}
+                              onSelect={(d) => d && handlePagarComissao(p.id, d)}
+                              initialFocus
+                              className={cn("p-3 pointer-events-auto")}
+                            />
+                          </PopoverContent>
+                        </Popover>
                       )}
                     </div>
                     {p.comissao_paga_em && (

@@ -1,0 +1,1 @@
+ALTER TABLE public.pedidos ADD COLUMN observacoes_pedido text;

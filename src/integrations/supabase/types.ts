@@ -140,6 +140,7 @@ export type Database = {
           id: string
           numero_pedido: string
           nuvemshop_order_id: number | null
+          observacoes_pedido: string | null
           origem: string
           rastreio_codigo: string | null
           status_pagamento: string
@@ -171,6 +172,7 @@ export type Database = {
           id?: string
           numero_pedido: string
           nuvemshop_order_id?: number | null
+          observacoes_pedido?: string | null
           origem?: string
           rastreio_codigo?: string | null
           status_pagamento?: string
@@ -202,6 +204,7 @@ export type Database = {
           id?: string
           numero_pedido?: string
           nuvemshop_order_id?: number | null
+          observacoes_pedido?: string | null
           origem?: string
           rastreio_codigo?: string | null
           status_pagamento?: string
