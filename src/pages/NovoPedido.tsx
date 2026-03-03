@@ -23,6 +23,7 @@ interface NuvemProduct {
   colors: string[];
   sizes: string[];
   images: string[];
+  price: number | null;
 }
 
 interface ItemForm {
@@ -102,13 +103,36 @@ function parseItens(pedidoStr: string): ItemForm[] {
   return items.length ? items : [{ nome_produto: pedidoStr.trim(), quantidade: 1, tamanho: "", cor: "" }];
 }
 
+function maskPhone(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
+function maskCpfCnpj(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 14);
+  if (digits.length <= 11) {
+    // CPF: XXX.XXX.XXX-XX
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+    if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+  }
+  // CNPJ: XX.XXX.XXX/XXXX-XX
+  if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`;
+  if (digits.length <= 8) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5)}`;
+  if (digits.length <= 12) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8)}`;
+  return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
+}
+
 function useNuvemProducts() {
   return useQuery<NuvemProduct[]>({
     queryKey: ["nuvem-products"],
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke("nuvemshop-products");
       if (error) throw error;
-      return data?.products || [];
+      return Array.isArray(data) ? data : (data?.products || []);
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -207,6 +231,7 @@ export default function NovoPedido() {
         valor_liquido: (parseFloat(valorBruto) || 0) - (parseFloat(frete) || 0),
         etapa_producao: "Planejamento",
         data_pedido: new Date().toISOString(),
+        observacoes_pedido: observacoes.trim() || null,
       } as any);
 
       for (const item of itens.filter((i) => i.nome_produto.trim())) {
@@ -259,7 +284,7 @@ export default function NovoPedido() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="clienteTelefone">Celular</Label>
-              <Input id="clienteTelefone" value={clienteTelefone} onChange={(e) => setClienteTelefone(e.target.value)} />
+              <Input id="clienteTelefone" value={clienteTelefone} onChange={(e) => setClienteTelefone(maskPhone(e.target.value))} placeholder="(11) 99999-9999" />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="endereco">Endereço Completo</Label>
@@ -283,7 +308,7 @@ export default function NovoPedido() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="documento">CPF/CNPJ</Label>
-              <Input id="documento" value={documento} onChange={(e) => setDocumento(e.target.value)} />
+              <Input id="documento" value={documento} onChange={(e) => setDocumento(maskCpfCnpj(e.target.value))} placeholder="000.000.000-00" />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="valorBruto">Valor Bruto (R$)</Label>
@@ -351,7 +376,8 @@ export default function NovoPedido() {
                                 onSelect={() => handleSelectProduct(idx, p)}
                               >
                                 <Check className={cn("mr-2 h-4 w-4", item.nome_produto === p.name ? "opacity-100" : "opacity-0")} />
-                                {p.name}
+                                <span className="flex-1 truncate">{p.name}</span>
+                                {p.price != null && <span className="text-xs text-muted-foreground ml-2">R$ {p.price.toFixed(2)}</span>}
                               </CommandItem>
                             ))}
                           </CommandGroup>

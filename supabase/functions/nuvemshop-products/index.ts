@@ -13,6 +13,8 @@ const KNOWN_SIZES = new Set([
   "RN", "U", "UNICO", "ÚNICO",
 ]);
 
+const SIZE_PREFIX_REGEX = /^(PP|P|M|G|GG|XG|XXG|EG|EGG)\b/i;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -61,7 +63,7 @@ serve(async (req) => {
         for (const val of variant.values || []) {
           const v = (val.pt || val.es || val.en || (typeof val === "string" ? val : "")).trim();
           if (!v) continue;
-          if (KNOWN_SIZES.has(v.toUpperCase())) {
+          if (KNOWN_SIZES.has(v.toUpperCase()) || SIZE_PREFIX_REGEX.test(v)) {
             sizes.add(v);
           } else {
             colors.add(v);
@@ -71,10 +73,20 @@ serve(async (req) => {
 
       const mainImage = p.images?.[0]?.src || null;
 
+      // Get the lowest price from variants
+      let price: number | null = null;
+      for (const variant of p.variants || []) {
+        const vPrice = parseFloat(variant.price);
+        if (!isNaN(vPrice) && (price === null || vPrice < price)) {
+          price = vPrice;
+        }
+      }
+
       return {
         id: p.id,
         name: p.name?.pt || p.name?.es || p.name || "",
         image: mainImage,
+        price,
         colors: Array.from(colors).sort(),
         sizes: Array.from(sizes),
         variant_count: (p.variants || []).length,

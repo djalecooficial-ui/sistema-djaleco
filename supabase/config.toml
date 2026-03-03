@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.nuvemshop-products]
 verify_jwt = false
+
+[functions.superfrete-tracking]
+verify_jwt = false
