@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   ShoppingBag,
   Factory,
+  Package,
   Users,
   DollarSign,
   UserCog,
@@ -26,6 +27,7 @@ const mainItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Pedidos", url: "/pedidos", icon: ShoppingBag },
   { title: "Produção", url: "/producao", icon: Factory },
+  { title: "Produtos", url: "/produtos", icon: Package },
   { title: "Clientes", url: "/clientes", icon: Users },
 ];
 

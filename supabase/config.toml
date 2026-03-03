@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.pagarme-fees-sync]
 verify_jwt = false
+
+[functions.nuvemshop-products]
+verify_jwt = false

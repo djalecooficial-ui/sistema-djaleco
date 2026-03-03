@@ -18,24 +18,38 @@ interface ItemForm {
   cor: string;
 }
 
+function normalize(s: string) {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+}
+
+function matchLabel(label: string): string | null {
+  const n = normalize(label);
+  if (/^(NOME|NOME COMPLETO|CLIENTE)$/.test(n)) return "cliente_nome";
+  if (/^(CELULAR|TELEFONE|WHATSAPP|CONTATO|TEL|FONE|NUMERO|NUMERO DE CONTATO)$/.test(n)) return "cliente_telefone";
+  if (/ENDERECO|RUA|LOGRADOURO/.test(n)) return "endereco";
+  if (/^BAIRRO$/.test(n)) return "bairro";
+  if (/^CIDADE$/.test(n)) return "cidade";
+  if (/^(ESTADO|UF)$/.test(n)) return "estado";
+  if (/^CEP$/.test(n)) return "cep";
+  if (/CPF|CNPJ|DOCUMENTO/.test(n)) return "documento";
+  if (/PROFISS/.test(n)) return "profissao";
+  if (/^(PEDIDO|ITENS|PRODUTOS|PRODUTO|ITEMS|ITEM)$/.test(n)) return "pedido";
+  if (/^(VALOR|TOTAL|VALOR TOTAL|PRECO|PRECO TOTAL)$/.test(n)) return "valor";
+  if (/^(FRETE|ENVIO|ENTREGA)$/.test(n)) return "frete";
+  return null;
+}
+
 function parseWhatsApp(text: string) {
   const result: Record<string, string> = {};
   const lines = text.split("\n");
   for (const line of lines) {
     const idx = line.indexOf(":");
     if (idx === -1) continue;
-    const label = line.substring(0, idx).trim().toUpperCase();
+    const rawLabel = line.substring(0, idx).trim();
     const value = line.substring(idx + 1).trim();
-    if (label === "NOME") result.cliente_nome = value;
-    else if (label === "CELULAR") result.cliente_telefone = value;
-    else if (label.includes("ENDERECO") || label.includes("ENDEREÇO")) result.endereco = value;
-    else if (label === "BAIRRO") result.bairro = value;
-    else if (label === "CIDADE") result.cidade = value;
-    else if (label === "ESTADO") result.estado = value;
-    else if (label === "CEP") result.cep = value;
-    else if (label.includes("CPF") || label.includes("CNPJ")) result.documento = value;
-    else if (label.includes("PROFISS")) result.profissao = value;
-    else if (label === "PEDIDO") result.pedido = value;
+    if (!value) continue;
+    const key = matchLabel(rawLabel);
+    if (key && !result[key]) result[key] = value;
   }
   return result;
 }
