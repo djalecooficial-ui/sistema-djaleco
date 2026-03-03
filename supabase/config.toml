@@ -1,1 +1,7 @@
 project_id = "doaaarwdaayioxjnedpj"
+
+[functions.nuvemshop-sync]
+verify_jwt = false
+
+[functions.nuvemshop-webhook]
+verify_jwt = false

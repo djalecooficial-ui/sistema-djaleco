@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
-import { Search, Plus } from "lucide-react";
+import { Search, Plus, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -16,6 +18,24 @@ function formatCurrency(value: number) {
 export default function Pedidos() {
   const { data: pedidos, isLoading } = usePedidos();
   const [search, setSearch] = useState("");
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("nuvemshop-sync");
+      if (error) throw error;
+      if (data?.success) {
+        toast.success(data.message || "Sync concluído!");
+      } else {
+        toast.error(data?.error || "Erro no sync");
+      }
+    } catch (e: any) {
+      toast.error("Erro ao sincronizar: " + (e.message || "erro desconhecido"));
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const filtered = pedidos?.filter(
     (p) =>
@@ -28,6 +48,10 @@ export default function Pedidos() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-foreground">Pedidos</h1>
+          <Button variant="outline" onClick={handleSync} disabled={syncing}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Sincronizando..." : "Sync Nuvemshop"}
+          </Button>
           <Button asChild>
             <Link to="/pedidos/novo"><Plus className="h-4 w-4 mr-2" />Novo Pedido</Link>
           </Button>
