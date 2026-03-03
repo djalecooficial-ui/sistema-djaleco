@@ -1,64 +1,32 @@
 
 
-# Plano: Ajustar Pedidos e Criar Formulario de Novo Pedido
+# Plano: Corrigir parsing de itens, numeracao ZAP e filtro de abas
 
-## 1. Renomear aba "Pagos" para "Recebidos" e ajustar filtro
+## Problemas
 
-A aba principal mostrara somente pedidos efetivamente pagos/recebidos. A logica `isPago` ja faz isso — basta renomear o label de "Pagos" para "Recebidos".
+1. **Parsing de itens do WhatsApp cria uma linha por caracteristica** — o split por `,` quebra "Scrub Antonia (Cinza Escuro) M (42)), Scrub Antonia (Vinho) M (42))" incorretamente porque parenteses e virgulas se misturam. Precisa de um parser mais inteligente que entenda que cada item eh `NxProduto (Cor) Tamanho` como uma unidade.
 
-**Arquivo:** `src/pages/Pedidos.tsx` — trocar texto da tab.
+2. **Numeracao deve ser ZAP, nao WP** — `getNextWPNumber` busca `%-WP` e gera `001-WP`. Trocar para `%-ZAP` e gerar `001-ZAP`.
 
-## 2. Endereco completo no sync da Nuvemshop
+3. **Aba Recebidos mostrando pedidos nao pagos** — a logica `isPago` considera pago qualquer pedido com `valor_bruto > 0` e etapa diferente de "Novo"/"Cancelado". Pedidos WhatsApp manuais com etapa "Planejamento" caem como "pagos". Precisa ajustar: pedido so eh "recebido" se `taxa_pagarme > 0` OU se `origem === "whatsapp"` com confirmacao de pagamento (ou outra regra clara).
 
-O `shipping_address` da Nuvemshop tem campos separados: `address` (rua), `number`, `floor` (andar/apto/loja), `locality` (bairro), `zipcode`, `city`, `province`. Atualmente so capturamos `address`. Precisamos concatenar:
+## Alteracoes
 
-```
-enderecoCliente = [address, number, floor].filter(Boolean).join(", ")
-```
+### 1. `src/hooks/usePedidos.ts` — renomear para ZAP
+- `getNextWPNumber` -> `getNextZAPNumber`
+- Buscar `%-ZAP` e gerar formato `001-ZAP`
 
-Exemplo resultado: `Rua Santa Rita da Estrela, 79, Apto 12`
+### 2. `src/pages/NovoPedido.tsx` — corrigir parsing de itens
+- Melhorar `parseItens`: em vez de split por `,`, usar regex que identifica o padrao `Nx Produto` como delimitador de cada item
+- Cada item no formato WhatsApp eh tipicamente: `1x Scrub Antônia (Cinza Escuro) M (42)`
+- O parser deve capturar `quantidade`, `nome_produto` (incluindo cor e tamanho no nome), e opcionalmente extrair cor e tamanho dos parenteses
+- Atualizar chamada de `getNextWPNumber` para `getNextZAPNumber`
 
-**Arquivo:** `supabase/functions/nuvemshop-sync/index.ts` — ajustar linha 110 para concatenar `address`, `number` e `floor`.
+### 3. `src/pages/Pedidos.tsx` — ajustar filtro isPago
+- Tornar mais restritivo: `isPago` retorna true somente se `taxa_pagarme > 0` (confirmacao real de pagamento via gateway). Pedidos manuais (whatsapp) sem taxa ficam em Pendentes ate serem marcados manualmente.
 
-## 3. Criar pagina de Novo Pedido com paste do WhatsApp
-
-### Rota
-- Adicionar rota `/pedidos/novo` em `App.tsx` (ANTES de `/pedidos/:id` para evitar conflito)
-
-### Pagina `src/pages/NovoPedido.tsx`
-- Formulario com campos: cliente_nome, cliente_telefone, cidade, estado, endereco, bairro, cep, valor_bruto, frete
-- Area de texto "Colar dados do WhatsApp" que aceita o bloco padronizado e faz parse linha a linha:
-  - Regex por label (`NOME:`, `CELULAR:`, etc.) para extrair valores
-  - `PEDIDO:` — faz parse de `2x Produto Nome` e busca produtos na base (match por nome parcial em `pedido_itens` ou catalogo se houver)
-- Botao "Preencher" que popula o formulario
-- Botao "Salvar Pedido" que:
-  1. Gera proximo numero WP (`getNextWPNumber`)
-  2. Cria pedido via `useCreatePedido`
-  3. Cria itens via `useCreatePedidoItem`
-  4. Redireciona para `/pedidos/:id`
-
-### Parse do texto WhatsApp
-O texto colado segue o formato padrao que ja geramos:
-```
-NOME: Joao Silva
-CELULAR: (11) 99999-9999
-PROFISSAO: Enfermeira
-ENDERECO COMPLETO: Rua X, 123, Apto 4
-BAIRRO: Centro
-CIDADE: Sao Paulo
-ESTADO: SP
-CEP: 01000-000
-CPF/CNPJ: 123.456.789-00
-DATA DO PEDIDO: 15/01/2025
-PEDIDO: 2x Jaleco Branco P, 1x Scrub Azul M
-```
-Cada linha eh parseada com `split(":")` no primeiro `:` para separar label e valor.
-
-Para os itens do pedido, parse `Nx nome_produto` e armazenamos como texto — o usuario pode ajustar manualmente antes de salvar.
-
-### Arquivos a criar/editar
-- **Criar:** `src/pages/NovoPedido.tsx`
-- **Editar:** `src/App.tsx` — adicionar rota
-- **Editar:** `supabase/functions/nuvemshop-sync/index.ts` — endereco completo
-- **Editar:** `src/pages/Pedidos.tsx` — renomear aba
+### Arquivos
+- `src/hooks/usePedidos.ts` — renomear funcao e pattern ZAP
+- `src/pages/NovoPedido.tsx` — melhorar parser de itens + usar getNextZAPNumber
+- `src/pages/Pedidos.tsx` — ajustar isPago
 
