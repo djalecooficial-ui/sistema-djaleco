@@ -53,13 +53,34 @@ serve(async (req) => {
         trackingData = await res.json();
         source = "superfrete";
       } else {
-        console.warn(`SuperFrete failed (status ${res.status}), falling back to Link & Track`);
+        console.warn(`SuperFrete failed (status ${res.status}), falling back to Seu Rastreio`);
+      }
+    }
+
+    // Strategy 2: Seu Rastreio (if we have a tracking code and SuperFrete didn't work)
+    if (!trackingData && trackingCode) {
+      const seuRastreioKey = Deno.env.get("SEURASTREIO_API_KEY");
+      if (!seuRastreioKey) throw new Error("Missing SEURASTREIO_API_KEY");
+
+      const srRes = await fetch(`https://seurastreio.com.br/api/public/rastreio/${encodeURIComponent(trackingCode)}`, {
+        headers: {
+          Authorization: `Bearer ${seuRastreioKey}`,
+          Accept: "application/json",
+        },
+      });
+
+      if (srRes.ok) {
+        trackingData = await srRes.json();
+        source = "seurastreio";
+      } else {
+        const errText = await srRes.text();
+        console.warn(`Seu Rastreio failed (status ${srRes.status}): ${errText}`);
       }
     }
 
     if (!trackingData) {
       return new Response(
-        JSON.stringify({ error: "Este pedido não possui etiqueta SuperFrete. Use o rastreio direto pelos Correios.", needs_linketrack: true }),
+        JSON.stringify({ error: "Não foi possível consultar o rastreio. Verifique o código de rastreio.", no_tracking: true }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -76,24 +97,14 @@ serve(async (req) => {
         updates.etapa_producao = "Entregue";
         updates.data_entrega = trackingData.updated_at ? new Date(trackingData.updated_at).toISOString() : new Date().toISOString();
       }
-    } else if (source === "linketrack") {
-      // Link & Track returns { codigo, servico, eventos: [{ data, hora, local, status, subStatus }] }
-      const eventos = trackingData.eventos || [];
-      if (eventos.length > 0) {
-        const ultimo = eventos[0]; // most recent event
-        const statusText = (ultimo.status || "").toLowerCase();
-
-        // Check if delivered
-        if (statusText.includes("entregue") || statusText.includes("objeto entregue")) {
+    } else if (source === "seurastreio") {
+      // Seu Rastreio returns { codigo, status, success, eventoMaisRecente: { descricao, data, local } }
+      const evento = trackingData.eventoMaisRecente;
+      if (evento) {
+        const desc = (evento.descricao || "").toLowerCase();
+        if (desc.includes("entregue")) {
           updates.etapa_producao = "Entregue";
-          // Parse date from "dd/mm/yyyy" and hora "hh:mm"
-          try {
-            const [day, month, year] = (ultimo.data || "").split("/");
-            const [hour, minute] = (ultimo.hora || "00:00").split(":");
-            updates.data_entrega = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute)).toISOString();
-          } catch {
-            updates.data_entrega = new Date().toISOString();
-          }
+          updates.data_entrega = evento.data ? new Date(evento.data).toISOString() : new Date().toISOString();
         }
       }
     }

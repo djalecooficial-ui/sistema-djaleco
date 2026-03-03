@@ -58,19 +58,16 @@ export default function PedidoDetalhe() {
     if (!id) return;
     setTrackingLoading(true);
     try {
-      if (pedido?.superfrete_order_id) {
-        const { data, error } = await supabase.functions.invoke("superfrete-tracking", {
-          body: { pedido_id: id },
-        });
-        if (error) throw error;
-        if (data?.error) {
-          toast.error(data.error);
-        } else {
-          toast.success("Rastreio consultado via SuperFrete!");
-          queryClient.invalidateQueries({ queryKey: ["pedidos", id] });
-        }
-      } else if (pedido?.rastreio_codigo) {
-        toast.info("Rastreio automático disponível apenas para etiquetas SuperFrete. Use o site dos Correios para rastrear manualmente.", { duration: 5000 });
+      const { data, error } = await supabase.functions.invoke("superfrete-tracking", {
+        body: { pedido_id: id },
+      });
+      if (error) throw error;
+      if (data?.error) {
+        toast.error(data.error);
+      } else {
+        const sourceLabel = data?.source === "seurastreio" ? "Seu Rastreio" : "SuperFrete";
+        toast.success(`Rastreio consultado via ${sourceLabel}!`);
+        queryClient.invalidateQueries({ queryKey: ["pedidos", id] });
       }
     } catch (e: any) {
       toast.error("Erro ao consultar rastreio: " + (e.message || "erro"));
@@ -229,8 +226,8 @@ export default function PedidoDetalhe() {
                 variant="outline"
                 size="sm"
                 onClick={handleConsultarRastreio}
-                disabled={trackingLoading || !pedido.superfrete_order_id}
-                title={!pedido.superfrete_order_id ? "Disponível apenas para etiquetas SuperFrete" : ""}
+                disabled={trackingLoading || (!pedido.superfrete_order_id && !pedido.rastreio_codigo)}
+                title={!pedido.superfrete_order_id && !pedido.rastreio_codigo ? "Necessário código de rastreio ou etiqueta SuperFrete" : ""}
               >
                 {trackingLoading ? "Consultando..." : "Consultar Rastreio"}
               </Button>
