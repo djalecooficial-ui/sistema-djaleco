@@ -1,12 +1,13 @@
 import { AppLayout } from "@/components/layout/AppLayout";
-import { usePedido, usePedidoItens, useUpdatePedido } from "@/hooks/usePedidos";
+import { usePedido, usePedidoItens, useUpdatePedido, useDeletePedido } from "@/hooks/usePedidos";
 import { useVendedores } from "@/hooks/useVendedores";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Truck, PackageCheck } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { ArrowLeft, Truck, PackageCheck, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { useState } from "react";
@@ -25,6 +26,8 @@ export default function PedidoDetalhe() {
   const { data: itens } = usePedidoItens(id);
   const { data: vendedores } = useVendedores();
   const updatePedido = useUpdatePedido();
+  const deletePedido = useDeletePedido();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [trackingLoading, setTrackingLoading] = useState(false);
 
@@ -34,8 +37,9 @@ export default function PedidoDetalhe() {
     if (!id) return;
     const v = vendedores?.find((vd) => vd.id === vendedorId);
     if (!v) return;
+    const taxa = pedido?.origem === "whatsapp" ? ((v as any).taxa_comissao_whatsapp ?? v.taxa_comissao) : ((v as any).taxa_comissao_site ?? v.taxa_comissao);
     const base = Number(pedido?.valor_bruto || 0) - Number(pedido?.taxa_pagarme || 0) - Number(pedido?.frete || 0);
-    const comissao = base > 0 ? base * (v.taxa_comissao / 100) : 0;
+    const comissao = base > 0 ? base * (taxa / 100) : 0;
     updatePedido.mutate(
       { id, vendedor_id: vendedorId, comissao },
       { onSuccess: () => toast.success("Vendedor atualizado!") }
@@ -88,6 +92,23 @@ export default function PedidoDetalhe() {
           </Button>
           <h1 className="text-2xl font-bold">Pedido #{pedido.numero_pedido}</h1>
           <Badge variant="secondary">{pedido.etapa_producao || "Sem etapa"}</Badge>
+          <div className="ml-auto">
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm"><Trash2 className="h-4 w-4 mr-2" />Excluir Pedido</Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Tem certeza que deseja excluir este pedido?</AlertDialogTitle>
+                  <AlertDialogDescription>Esta ação não pode ser desfeita. O pedido #{pedido.numero_pedido} será excluído permanentemente.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => deletePedido.mutate(id!, { onSuccess: () => { toast.success("Pedido excluído!"); navigate("/pedidos"); } })}>Excluir</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -106,7 +127,10 @@ export default function PedidoDetalhe() {
                   <Select value={pedido.vendedor_id || ""} onValueChange={handleVendedorChange}>
                     <SelectTrigger className="w-48"><SelectValue placeholder="Selecionar vendedor" /></SelectTrigger>
                     <SelectContent>
-                      {vendedores?.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome} ({v.taxa_comissao}%)</SelectItem>)}
+                      {vendedores?.map((v) => {
+                        const taxa = pedido.origem === "whatsapp" ? ((v as any).taxa_comissao_whatsapp ?? v.taxa_comissao) : ((v as any).taxa_comissao_site ?? v.taxa_comissao);
+                        return <SelectItem key={v.id} value={v.id}>{v.nome} ({taxa}%)</SelectItem>;
+                      })}
                     </SelectContent>
                   </Select>
                 </div>

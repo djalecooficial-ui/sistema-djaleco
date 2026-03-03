@@ -122,6 +122,20 @@ export function useDeletePedidoItem() {
   });
 }
 
+export function useDeletePedido() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("pedidos").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pedidos"] });
+      qc.invalidateQueries({ queryKey: ["pedidos-com-itens"] });
+    },
+  });
+}
+
 export async function getNextZAPNumber(): Promise<string> {
   const { data } = await supabase
     .from("pedidos")

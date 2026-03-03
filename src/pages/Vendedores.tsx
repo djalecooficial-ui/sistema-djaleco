@@ -18,26 +18,28 @@ export default function Vendedores() {
   const deleteVendedor = useDeleteVendedor();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
-  const [form, setForm] = useState({ nome: "", email: "", telefone: "", taxa_comissao: "10" });
+  const [form, setForm] = useState({ nome: "", email: "", telefone: "", taxa_comissao_site: "10", taxa_comissao_whatsapp: "10" });
 
   const resetForm = () => {
-    setForm({ nome: "", email: "", telefone: "", taxa_comissao: "10" });
+    setForm({ nome: "", email: "", telefone: "", taxa_comissao_site: "10", taxa_comissao_whatsapp: "10" });
     setEditing(null);
   };
 
   const handleEdit = (v: NonNullable<typeof vendedores>[0]) => {
-    setForm({ nome: v.nome, email: v.email || "", telefone: v.telefone || "", taxa_comissao: String(v.taxa_comissao) });
+    setForm({ nome: v.nome, email: v.email || "", telefone: v.telefone || "", taxa_comissao_site: String((v as any).taxa_comissao_site ?? v.taxa_comissao), taxa_comissao_whatsapp: String((v as any).taxa_comissao_whatsapp ?? v.taxa_comissao) });
     setEditing(v.id);
     setOpen(true);
   };
 
   const handleSubmit = () => {
     if (!form.nome) { toast.error("Nome é obrigatório"); return; }
-    const data = {
+    const data: any = {
       nome: form.nome,
       email: form.email || null,
       telefone: form.telefone || null,
-      taxa_comissao: Number(form.taxa_comissao),
+      taxa_comissao: Number(form.taxa_comissao_site),
+      taxa_comissao_site: Number(form.taxa_comissao_site),
+      taxa_comissao_whatsapp: Number(form.taxa_comissao_whatsapp),
     };
 
     if (editing) {
@@ -71,7 +73,8 @@ export default function Vendedores() {
                 <div><Label>Nome *</Label><Input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></div>
                 <div><Label>Email</Label><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
                 <div><Label>Telefone</Label><Input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></div>
-                <div><Label>Taxa de Comissão (%)</Label><Input type="number" value={form.taxa_comissao} onChange={(e) => setForm({ ...form, taxa_comissao: e.target.value })} /></div>
+                <div><Label>Comissão Site (%)</Label><Input type="number" value={form.taxa_comissao_site} onChange={(e) => setForm({ ...form, taxa_comissao_site: e.target.value })} /></div>
+                <div><Label>Comissão WhatsApp (%)</Label><Input type="number" value={form.taxa_comissao_whatsapp} onChange={(e) => setForm({ ...form, taxa_comissao_whatsapp: e.target.value })} /></div>
                 <Button className="w-full" onClick={handleSubmit}>{editing ? "Salvar" : "Criar"}</Button>
               </div>
             </DialogContent>
@@ -85,21 +88,23 @@ export default function Vendedores() {
                 <TableHead>Nome</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Telefone</TableHead>
-                <TableHead>Comissão</TableHead>
+                <TableHead>Comissão Site</TableHead>
+                <TableHead>Comissão WhatsApp</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
               ) : (
                 vendedores?.map((v) => (
                   <TableRow key={v.id}>
                     <TableCell className="font-medium">{v.nome}</TableCell>
                     <TableCell className="text-muted-foreground">{v.email || "—"}</TableCell>
                     <TableCell className="text-muted-foreground">{v.telefone || "—"}</TableCell>
-                    <TableCell>{v.taxa_comissao}%</TableCell>
+                    <TableCell>{(v as any).taxa_comissao_site ?? v.taxa_comissao}%</TableCell>
+                    <TableCell>{(v as any).taxa_comissao_whatsapp ?? v.taxa_comissao}%</TableCell>
                     <TableCell><Badge variant={v.status === "ativo" ? "default" : "secondary"}>{v.status}</Badge></TableCell>
                     <TableCell>
                       <div className="flex gap-1">
