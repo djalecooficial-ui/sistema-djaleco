@@ -1,43 +1,44 @@
 
 
-# Plano: Corrigir formulario WhatsApp + Criar pagina de Produtos
+# Plano: Melhorias no Novo Pedido, Financeiro e Comissoes
 
-## Problema 1: Formulario WhatsApp nao preenche
+## 1. Novo Pedido — Produto com autocomplete da Nuvemshop + Observacoes
 
-O parser `parseWhatsApp` espera labels exatas como `NOME:`, `CELULAR:`, `PEDIDO:`. Se o texto colado do WhatsApp tiver labels diferentes (ex: `Nome completo:`, `Telefone:`, `Itens:`, `Produtos:`), o parser nao reconhece e nao preenche nada.
+**Arquivo:** `src/pages/NovoPedido.tsx`
 
-**Solucao:** Ampliar os matchers do parser para aceitar variacoes comuns:
-- `NOME` / `NOME COMPLETO` / `CLIENTE` → `cliente_nome`
-- `CELULAR` / `TELEFONE` / `WHATSAPP` / `CONTATO` → `cliente_telefone`
-- `PEDIDO` / `ITENS` / `PRODUTOS` / `PRODUTO` → `pedido` (itens)
-- Aceitar texto com ou sem acentos
+- Buscar produtos da Edge Function `nuvemshop-products` (ja existente) via react-query
+- Campo "Produto" vira um autocomplete/combobox: ao digitar, filtra produtos da Nuvemshop e ao selecionar, popula os dropdowns de tamanho e cor com as opcoes disponiveis daquele produto
+- Campos "Tamanho" e "Cor" viram `Select` (dropdown) com as opcoes do produto selecionado
+- Layout responsivo para mobile: em telas pequenas, cada item vira um bloco empilhado (vertical) em vez de grid horizontal
+- Adicionar campo "Observacoes" (Textarea) no formulario, salvo na tabela `pedidos`
 
-**Arquivo:** `src/pages/NovoPedido.tsx` — funcao `parseWhatsApp`
+**Migration:** Adicionar coluna `observacoes_pedido` na tabela `pedidos`:
+```sql
+ALTER TABLE public.pedidos ADD COLUMN observacoes_pedido text;
+```
 
-## Problema 2: Pagina de Produtos da Nuvemshop
+## 2. Financeiro — Filtros na Visao Geral
 
-### 2a. Edge Function `nuvemshop-products`
-Criar nova Edge Function que busca produtos da API Nuvemshop (`GET /products`), agrupa variantes por produto principal, e retorna JSON com:
-- `id`, `name`, `images`
-- `colors[]` (valores unicos de cor extraidos das variantes)
-- `sizes[]` (valores unicos de tamanho extraidos das variantes)
+**Arquivo:** `src/pages/Financeiro.tsx`
 
-A API da Nuvemshop retorna produtos com `variants[]`, cada variante tem `values[]` (ex: `["P", "Cinza Escuro"]`). A funcao agrupa e deduplica.
+Adicionar barra de filtros na aba "Visao Geral" com:
+- **Ano** (Select): filtra pedidos por ano
+- **Mes** (Select): filtra por mes especifico (opcional, mostra todos se vazio)
+- **Periodo personalizado** (date range): dia ou intervalo de datas
+- **Vendedor** (Select): filtra por vendedor_id
+- **Origem** (Select): "Todos", "Site", "WhatsApp"
 
-### 2b. Pagina `src/pages/Produtos.tsx`
-- Lista de produtos em cards com imagem, nome, e dropdowns de cores/tamanhos
-- Busca dados via `supabase.functions.invoke("nuvemshop-products")`
-- Cada card mostra: imagem principal, nome do produto, badge com qtd variantes
-- Dropdowns para ver cores e tamanhos disponiveis
+Os cards de totais e o grafico de faturamento mensal serao recalculados com base nos filtros aplicados. Os filtros se aplicam sobre `allPedidos` antes de calcular totais.
 
-### 2c. Navegacao
-- Adicionar item "Produtos" no sidebar (`AppSidebar.tsx`) com icone `Package`
-- Adicionar rota `/produtos` no `App.tsx`
+## 3. Comissoes — Editar percentual + Pagar com data
 
-### Arquivos
-- `supabase/functions/nuvemshop-products/index.ts` — nova edge function
-- `src/pages/Produtos.tsx` — nova pagina
-- `src/components/layout/AppSidebar.tsx` — adicionar link Produtos
-- `src/App.tsx` — adicionar rota
-- `src/pages/NovoPedido.tsx` — ampliar parser WhatsApp
+**Arquivo:** `src/pages/Financeiro.tsx`
+
+- **Editar percentual**: O botao de editar (lapiszinho) passa a editar o **percentual de comissao** em vez do valor absoluto. Ao salvar o novo percentual, o sistema recalcula `comissao = valor_liquido * (percentual / 100)` e salva o novo valor
+- **Botao Pagar com data**: O botao "Pagar" no mobile (que hoje marca como "Pagar Hoje" direto) passa a abrir o mesmo Popover com Calendar que ja existe no desktop, permitindo escolher a data de pagamento
+
+### Arquivos afetados
+- `src/pages/NovoPedido.tsx` — autocomplete de produtos, dropdowns, observacoes, layout mobile
+- `src/pages/Financeiro.tsx` — filtros na visao geral, edicao de percentual, pagar com data no mobile
+- Migration SQL — coluna `observacoes_pedido`
 
