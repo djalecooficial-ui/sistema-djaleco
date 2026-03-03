@@ -242,6 +242,8 @@ export type Database = {
           nome: string
           status: string
           taxa_comissao: number
+          taxa_comissao_site: number
+          taxa_comissao_whatsapp: number
           telefone: string | null
           updated_at: string
         }
@@ -252,6 +254,8 @@ export type Database = {
           nome: string
           status?: string
           taxa_comissao?: number
+          taxa_comissao_site?: number
+          taxa_comissao_whatsapp?: number
           telefone?: string | null
           updated_at?: string
         }
@@ -262,6 +266,8 @@ export type Database = {
           nome?: string
           status?: string
           taxa_comissao?: number
+          taxa_comissao_site?: number
+          taxa_comissao_whatsapp?: number
           telefone?: string | null
           updated_at?: string
         }
