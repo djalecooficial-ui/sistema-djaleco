@@ -10,9 +10,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
-import { Search, Plus, RefreshCw } from "lucide-react";
+import { Search, Plus, RefreshCw, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import type { Pedido } from "@/hooks/usePedidos";
 
 const ETAPAS = ["Planejamento", "Corte", "Costura", "Acabamento", "Embalagem", "Despachado", "Entregue"];
 
@@ -75,6 +76,46 @@ export default function Pedidos() {
     );
   };
 
+  const handleCopyWhatsApp = async (p: Pedido) => {
+    try {
+      const [itensRes, clienteRes] = await Promise.all([
+        supabase.from("pedido_itens").select("*").eq("pedido_id", p.id),
+        supabase.from("clientes").select("documento").eq("nome", p.cliente_nome).limit(1),
+      ]);
+
+      const itens = itensRes.data || [];
+      const documento = clienteRes.data?.[0]?.documento || "";
+
+      const pedidoDesc = itens
+        .map((i) => {
+          const parts = [`${i.quantidade}x ${i.nome_produto}`];
+          if (i.tamanho) parts.push(i.tamanho);
+          if (i.cor) parts.push(i.cor);
+          return parts.join(" ");
+        })
+        .join(", ") || "";
+
+      const texto = [
+        `NOME: ${p.cliente_nome}`,
+        `CELULAR: ${p.cliente_telefone || ""}`,
+        `PROFISSÃO:`,
+        `ENDEREÇO COMPLETO:`,
+        `BAIRRO:`,
+        `CIDADE: ${p.cidade || ""}`,
+        `ESTADO: ${p.estado || ""}`,
+        `CEP:`,
+        `CPF/CNPJ: ${documento}`,
+        `DATA DO PEDIDO: ${format(new Date(p.data_pedido), "dd/MM/yyyy")}`,
+        `PEDIDO: ${pedidoDesc}`,
+      ].join("\n");
+
+      await navigator.clipboard.writeText(texto);
+      toast.success("Copiado para a área de transferência!");
+    } catch {
+      toast.error("Erro ao copiar dados do pedido");
+    }
+  };
+
   const filtered = pedidos?.filter(
     (p) =>
       p.cliente_nome.toLowerCase().includes(search.toLowerCase()) ||
@@ -91,7 +132,12 @@ export default function Pedidos() {
         <Link to={`/pedidos/${p.id}`} className="font-medium text-primary hover:underline text-sm">
           #{p.numero_pedido}
         </Link>
-        <Badge variant="outline" className="text-[10px]">{p.origem}</Badge>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleCopyWhatsApp(p)} title="Copiar para WhatsApp">
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
+          <Badge variant="outline" className="text-[10px]">{p.origem}</Badge>
+        </div>
       </div>
       <p className="text-sm truncate">{p.cliente_nome}</p>
       <div className="flex items-center justify-between">
@@ -125,13 +171,14 @@ export default function Pedidos() {
                 <TableHead>Origem</TableHead>
                 <TableHead>Etapa</TableHead>
                 <TableHead>Data</TableHead>
+                <TableHead className="w-10"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
               ) : items.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Nenhum pedido encontrado</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Nenhum pedido encontrado</TableCell></TableRow>
               ) : (
                 items.map((p) => (
                   <TableRow key={p.id}>
@@ -156,6 +203,11 @@ export default function Pedidos() {
                       </Select>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{format(new Date(p.data_pedido), "dd/MM/yyyy")}</TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleCopyWhatsApp(p)} title="Copiar para WhatsApp">
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
