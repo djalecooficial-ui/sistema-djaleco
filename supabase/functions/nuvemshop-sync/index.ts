@@ -136,7 +136,9 @@ Deno.serve(async (req) => {
 
       let pedidoId: string;
       if (existingPedido) {
-        const { data: updated, error } = await supabase.from("pedidos").update(pedidoData).eq("id", existingPedido.id).select("id").single();
+        // Preserve manually set etapa_producao and etapa_entrada_em
+        const { etapa_producao, etapa_entrada_em, ...updateData } = pedidoData;
+        const { data: updated, error } = await supabase.from("pedidos").update(updateData).eq("id", existingPedido.id).select("id").single();
         if (error) { console.error("Error updating pedido:", error); continue; }
         pedidoId = updated.id;
       } else {
@@ -174,90 +176,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Cross-reference Pagarme fees
-    const PAGARME_API_KEY = Deno.env.get("PAGARME_API_KEY");
-    let pagarmeUpdated = 0;
-    if (PAGARME_API_KEY) {
-      try {
-        const auth = btoa(`${PAGARME_API_KEY}:`);
-        let allCharges: any[] = [];
-        let pgPage = 1;
-        const pgSize = 100;
-        // Fetch recent charges (last 3 months)
-        const threeMonthsAgo = new Date();
-        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-        const createdSince = threeMonthsAgo.toISOString().split("T")[0] + "T00:00:00";
-
-        while (true) {
-          const apiUrl = `https://api.pagar.me/core/v5/charges?page=${pgPage}&size=${pgSize}&created_since=${encodeURIComponent(createdSince)}`;
-          const res = await fetch(apiUrl, {
-            headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
-          });
-          if (!res.ok) break;
-          const json = await res.json();
-          const charges = json.data || [];
-          if (!charges.length) break;
-          allCharges = allCharges.concat(charges);
-          if (charges.length < pgSize) break;
-          pgPage++;
-          if (allCharges.length > 2000) break;
-        }
-
-        // Build map: order_code -> fee
-        const feeByOrder: Record<string, { fee: number; amount: number; paid_amount: number }> = {};
-        for (const c of allCharges) {
-          const orderCode = c.order?.code || c.code;
-          if (!orderCode) continue;
-          const amount = (c.amount || 0) / 100;
-          const paidAmount = (c.paid_amount || 0) / 100;
-          const fee = amount - paidAmount;
-          feeByOrder[String(orderCode)] = { fee: Math.max(0, fee), amount, paid_amount: paidAmount };
-        }
-
-        // Update pedidos with Pagarme fees
-        const { data: pedidosToUpdate } = await supabase
-          .from("pedidos")
-          .select("id, numero_pedido, valor_bruto, frete, comissao, vendedor_id")
-          .eq("taxa_pagarme", 0);
-
-        if (pedidosToUpdate) {
-          for (const pedido of pedidosToUpdate) {
-            const feeData = feeByOrder[pedido.numero_pedido];
-            if (!feeData || feeData.fee <= 0) continue;
-
-            const taxaPagarme = feeData.fee;
-            const valorLiquido = Number(pedido.valor_bruto) - Number(pedido.frete) - taxaPagarme;
-
-            // Recalculate commission
-            let comissao = Number(pedido.comissao);
-            if (pedido.vendedor_id) {
-              const { data: vendedor } = await supabase
-                .from("vendedores")
-                .select("taxa_comissao")
-                .eq("id", pedido.vendedor_id)
-                .single();
-              if (vendedor) {
-                const baseComissao = Number(pedido.valor_bruto) - taxaPagarme - Number(pedido.frete);
-                comissao = baseComissao > 0 ? baseComissao * (vendedor.taxa_comissao / 100) : 0;
-              }
-            }
-
-            await supabase
-              .from("pedidos")
-              .update({ taxa_pagarme: taxaPagarme, valor_liquido: valorLiquido, comissao })
-              .eq("id", pedido.id);
-            pagarmeUpdated++;
-          }
-        }
-
-        console.log(`Updated ${pagarmeUpdated} pedidos with Pagarme fees`);
-      } catch (pgError) {
-        console.error("Pagarme fee sync error:", pgError);
-      }
-    }
-
     return new Response(
-      JSON.stringify({ success: true, message: `Sync concluído: ${syncedOrders} pedidos, ${syncedClientes} novos clientes, ${pagarmeUpdated} taxas Pagarme`, orders_synced: syncedOrders, clients_created: syncedClientes, pagarme_updated: pagarmeUpdated }),
+      JSON.stringify({ success: true, message: `Sync concluído: ${syncedOrders} pedidos, ${syncedClientes} novos clientes`, orders_synced: syncedOrders, clients_created: syncedClientes }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {

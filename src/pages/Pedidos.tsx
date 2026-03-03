@@ -32,6 +32,8 @@ export default function Pedidos() {
   const [search, setSearch] = useState("");
   const [syncing, setSyncing] = useState(false);
 
+  const [syncingPagarme, setSyncingPagarme] = useState(false);
+
   const handleSync = async () => {
     setSyncing(true);
     try {
@@ -46,6 +48,23 @@ export default function Pedidos() {
       toast.error("Erro ao sincronizar: " + (e.message || "erro desconhecido"));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleSyncPagarme = async () => {
+    setSyncingPagarme(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("pagarme-fees-sync");
+      if (error) throw error;
+      if (data?.success) {
+        toast.success(data.message || "Taxas atualizadas!");
+      } else {
+        toast.error(data?.error || "Erro no sync de taxas");
+      }
+    } catch (e: any) {
+      toast.error("Erro ao sincronizar taxas: " + (e.message || "erro desconhecido"));
+    } finally {
+      setSyncingPagarme(false);
     }
   };
 
@@ -164,6 +183,11 @@ export default function Pedidos() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">Pedidos</h1>
           <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={handleSyncPagarme} disabled={syncingPagarme} className="flex-1 sm:flex-none">
+              <RefreshCw className={`h-4 w-4 mr-2 ${syncingPagarme ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">{syncingPagarme ? "Sincronizando..." : "Taxas Pagarme"}</span>
+              <span className="sm:hidden">{syncingPagarme ? "..." : "Taxas"}</span>
+            </Button>
             <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing} className="flex-1 sm:flex-none">
               <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline">{syncing ? "Sincronizando..." : "Sync Nuvemshop"}</span>
