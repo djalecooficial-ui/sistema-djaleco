@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { startOfMonth, endOfMonth, subMonths, format, differenceInHours } from "date-fns";
+import { subMonths, differenceInHours } from "date-fns";
 
 const PRAZOS_ETAPA: Record<string, number> = {
   Corte: 4,
@@ -10,43 +10,16 @@ const PRAZOS_ETAPA: Record<string, number> = {
   Despachado: 1,
 };
 
-export type DashboardPeriod = "este_mes" | "ultimo_mes" | "3_meses" | "6_meses";
-
-export function useDashboardStats(period: DashboardPeriod = "este_mes") {
+export function useDashboardStats(periodStart: Date, periodEnd: Date) {
   return useQuery({
-    queryKey: ["dashboard-stats", period],
+    queryKey: ["dashboard-stats", periodStart.toISOString(), periodEnd.toISOString()],
     queryFn: async () => {
-      const now = new Date();
-      let periodStart: Date;
-      let periodEnd: Date = now;
-      let prevStart: Date;
-      let prevEnd: Date;
+      // Calculate previous period (same duration, immediately before)
+      const durationMs = periodEnd.getTime() - periodStart.getTime();
+      const prevEnd = new Date(periodStart.getTime() - 1);
+      const prevStart = new Date(prevEnd.getTime() - durationMs);
 
-      switch (period) {
-        case "ultimo_mes":
-          periodStart = startOfMonth(subMonths(now, 1));
-          periodEnd = endOfMonth(subMonths(now, 1));
-          prevStart = startOfMonth(subMonths(now, 2));
-          prevEnd = endOfMonth(subMonths(now, 2));
-          break;
-        case "3_meses":
-          periodStart = startOfMonth(subMonths(now, 2));
-          prevStart = startOfMonth(subMonths(now, 5));
-          prevEnd = endOfMonth(subMonths(now, 3));
-          break;
-        case "6_meses":
-          periodStart = startOfMonth(subMonths(now, 5));
-          prevStart = startOfMonth(subMonths(now, 11));
-          prevEnd = endOfMonth(subMonths(now, 6));
-          break;
-        default: // este_mes
-          periodStart = startOfMonth(now);
-          prevStart = startOfMonth(subMonths(now, 1));
-          prevEnd = endOfMonth(subMonths(now, 1));
-          break;
-      }
-
-      const [pedidosRes, clientesRes, allPedidosRes, prevPedidosRes] = await Promise.all([
+      const [pedidosRes, clientesRes, prevPedidosRes, producaoRes] = await Promise.all([
         supabase
           .from("pedidos")
           .select("*")
@@ -59,18 +32,18 @@ export function useDashboardStats(period: DashboardPeriod = "este_mes") {
           .lte("created_at", periodEnd.toISOString()),
         supabase
           .from("pedidos")
-          .select("valor_bruto, valor_liquido, frete, taxa_pagarme, comissao, data_pedido, origem, etapa_producao, etapa_entrada_em")
-          .gte("data_pedido", subMonths(now, 6).toISOString()),
-        supabase
-          .from("pedidos")
           .select("id")
           .gte("data_pedido", prevStart.toISOString())
           .lte("data_pedido", prevEnd.toISOString()),
+        supabase
+          .from("pedidos")
+          .select("etapa_producao, etapa_entrada_em")
+          .not("etapa_producao", "is", null)
+          .not("etapa_entrada_em", "is", null),
       ]);
 
       if (pedidosRes.error) throw pedidosRes.error;
       if (clientesRes.error) throw clientesRes.error;
-      if (allPedidosRes.error) throw allPedidosRes.error;
 
       const pedidosMes = pedidosRes.data || [];
       const faturamentoBruto = pedidosMes.reduce((s, p) => s + Number(p.valor_bruto), 0);
@@ -87,32 +60,12 @@ export function useDashboardStats(period: DashboardPeriod = "este_mes") {
         ? Math.round(((pedidosMes.length - prevCount) / prevCount) * 100)
         : 0;
 
-      // Revenue by month
-      const revenueByMonth: Record<string, number> = {};
-      for (const p of allPedidosRes.data || []) {
-        const key = format(new Date(p.data_pedido), "yyyy-MM");
-        revenueByMonth[key] = (revenueByMonth[key] || 0) + Number(p.valor_bruto);
-      }
-
-      // Orders by origin
-      const byOrigin: Record<string, number> = {};
-      for (const p of allPedidosRes.data || []) {
-        byOrigin[p.origem] = (byOrigin[p.origem] || 0) + 1;
-      }
-
-      // Production status
-      const byEtapa: Record<string, number> = {};
-      for (const p of allPedidosRes.data || []) {
-        const etapa = p.etapa_producao || "Sem etapa";
-        byEtapa[etapa] = (byEtapa[etapa] || 0) + 1;
-      }
-
-      // Production deadline status
+      // Production deadline status (always current, not filtered by period)
       let noPrazo = 0;
       let atencao = 0;
       let atrasado = 0;
       const activeEtapas = Object.keys(PRAZOS_ETAPA);
-      for (const p of allPedidosRes.data || []) {
+      for (const p of producaoRes.data || []) {
         if (!p.etapa_producao || !activeEtapas.includes(p.etapa_producao) || !p.etapa_entrada_em) continue;
         const prazo = PRAZOS_ETAPA[p.etapa_producao];
         const horasPassadas = differenceInHours(new Date(), new Date(p.etapa_entrada_em));
@@ -134,9 +87,6 @@ export function useDashboardStats(period: DashboardPeriod = "este_mes") {
         lucroOperacional,
         variacaoPedidos,
         producao: { noPrazo, atencao, atrasado },
-        revenueByMonth,
-        byOrigin,
-        byEtapa,
       };
     },
   });

@@ -22,9 +22,10 @@ Deno.serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const auth = btoa(`${PAGARME_API_KEY}:`);
 
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-    const createdSince = sixMonthsAgo.toISOString().split("T")[0] + "T00:00:00";
+    // Expanded to 24 months
+    const windowStart = new Date();
+    windowStart.setMonth(windowStart.getMonth() - 24);
+    const createdSince = windowStart.toISOString().split("T")[0] + "T00:00:00";
     const size = 100;
 
     // 1. Fetch payables (have the real fees)
@@ -42,11 +43,11 @@ Deno.serve(async (req) => {
       allPayables = allPayables.concat(payables);
       if (payables.length < size) break;
       page++;
-      if (allPayables.length > 5000) break;
+      if (allPayables.length > 10000) break;
     }
     console.log(`Fetched ${allPayables.length} payables`);
 
-    // 2. Fetch charges (to get charge code = nuvemshop_order_id)
+    // 2. Fetch charges
     let allCharges: any[] = [];
     page = 1;
     while (true) {
@@ -61,12 +62,11 @@ Deno.serve(async (req) => {
       allCharges = allCharges.concat(charges);
       if (charges.length < size) break;
       page++;
-      if (allCharges.length > 5000) break;
+      if (allCharges.length > 10000) break;
     }
     console.log(`Fetched ${allCharges.length} charges`);
 
     // 3. Build maps
-    // charge_id -> fee (from payables)
     const feeByChargeId: Record<string, number> = {};
     for (const p of allPayables) {
       if (p.charge_id && p.fee) {
@@ -74,7 +74,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // charge.code (= nuvemshop_order_id as string) -> { fee, amount }
     const feeByNuvemshopId: Record<string, { fee: number; chargeAmount: number }> = {};
     for (const c of allCharges) {
       if (c.status !== "paid") continue;
@@ -87,9 +86,10 @@ Deno.serve(async (req) => {
     console.log(`Fee map entries (by nuvemshop_order_id): ${Object.keys(feeByNuvemshopId).length}`);
 
     // 4. Fetch pedidos with taxa_pagarme = 0 that have nuvemshop_order_id
+    // Include origem to determine correct commission rate
     const { data: pedidos, error: pedidosError } = await supabase
       .from("pedidos")
-      .select("id, numero_pedido, nuvemshop_order_id, valor_bruto, frete, vendedor_id")
+      .select("id, numero_pedido, nuvemshop_order_id, valor_bruto, frete, vendedor_id, origem")
       .eq("taxa_pagarme", 0)
       .gt("valor_bruto", 0)
       .not("nuvemshop_order_id", "is", null);
@@ -97,12 +97,19 @@ Deno.serve(async (req) => {
     if (pedidosError) throw new Error(`Error fetching pedidos: ${pedidosError.message}`);
     console.log(`Pedidos to check: ${pedidos?.length || 0}`);
 
-    // 5. Cache vendedor rates
-    const vendedorRates: Record<string, number> = {};
-    const { data: vendedores } = await supabase.from("vendedores").select("id, taxa_comissao");
-    if (vendedores) for (const v of vendedores) vendedorRates[v.id] = v.taxa_comissao;
+    // 5. Cache vendedor rates (site and whatsapp)
+    const vendedorRates: Record<string, { site: number; whatsapp: number }> = {};
+    const { data: vendedores } = await supabase.from("vendedores").select("id, taxa_comissao_site, taxa_comissao_whatsapp");
+    if (vendedores) {
+      for (const v of vendedores) {
+        vendedorRates[v.id] = {
+          site: v.taxa_comissao_site,
+          whatsapp: v.taxa_comissao_whatsapp,
+        };
+      }
+    }
 
-    // 6. Match by nuvemshop_order_id -> charge.code
+    // 6. Match and update
     let updated = 0;
     const samples: string[] = [];
 
@@ -117,9 +124,12 @@ Deno.serve(async (req) => {
       const valorLiquido = valorBruto - frete - taxaPagarme;
 
       let comissao = 0;
-      if (pedido.vendedor_id && vendedorRates[pedido.vendedor_id] !== undefined) {
+      if (pedido.vendedor_id && vendedorRates[pedido.vendedor_id]) {
+        const rates = vendedorRates[pedido.vendedor_id];
+        // Use origin-specific rate
+        const taxaComissao = pedido.origem === "whatsapp" ? rates.whatsapp : rates.site;
         const base = valorBruto - taxaPagarme - frete;
-        comissao = base > 0 ? base * (vendedorRates[pedido.vendedor_id] / 100) : 0;
+        comissao = base > 0 ? base * (taxaComissao / 100) : 0;
       }
 
       const { error } = await supabase
