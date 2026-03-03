@@ -1,160 +1,154 @@
 
-# Plano: Abas de Pagamento, Etapas na Lista, Kanban Detalhado e Logo
+# Plano: Kanban Fluido, Dashboard Profissional, Responsividade e Comissoes
 
-## 1. Pagina de Pedidos -- Abas Pagos vs Pendentes
+## 1. Kanban com Drag-and-Drop Instantaneo
 
-Adicionar tabs na pagina `Pedidos.tsx`:
-- **Aba "Pagos"** (principal): mostra apenas pedidos com status pago (filtro por `valor_bruto > 0 AND taxa_pagarme > 0` ou por um campo de status de pagamento)
-- **Aba "Pendentes"**: pedidos nao pagos ou sem confirmacao de pagamento
+O drag nativo do HTML5 tem limitacoes (sem feedback visual instantaneo, delay). Vamos usar **optimistic updates** com React state local para que o card se mova INSTANTANEAMENTE ao soltar, sem esperar o banco.
 
-Como a tabela `pedidos` nao tem campo de status de pagamento, a logica sera:
-- Pedidos com `nuvemshop_order_id` cujo status na Nuvemshop era "paid"/"closed" sao considerados pagos. O sync ja mapeia isso na etapa de producao.
-- Alternativa mais simples e confiavel: considerar pedidos com `etapa_producao != 'Novo'` e `valor_bruto > 0` como pagos. Pedidos com `etapa_producao = 'Novo'` ou nulo sao pendentes.
+**Abordagem**:
+- Manter um estado local `pedidosByEtapa` que atualiza imediatamente no `handleDrop`
+- O `updatePedido.mutate` roda em background (optimistic)
+- Cursor `grab` / `grabbing` ja esta implementado
+- Adicionar `touch-action: none` e handlers de touch para mobile
+- Scroll horizontal suave com `scroll-snap` e `-webkit-overflow-scrolling: touch`
 
-**Decisao**: Usar a presenca de `taxa_pagarme > 0` OU `etapa_producao` diferente de "Novo"/"Cancelado" como indicador de pagamento. Cruzar com dados do Pagarme para popular `taxa_pagarme` nos pedidos.
-
-### Dropdown de Etapa na Lista
-Na tabela de pedidos, substituir o Badge da etapa por um `Select` dropdown com as etapas: Planejamento, Corte, Costura, Acabamento, Embalagem, Despachado, Entregue. Ao alterar, atualiza `etapa_producao` e `etapa_entrada_em` no banco -- sincronizando automaticamente com o Kanban.
-
-### Etapa "Entregue"
-Adicionar "Entregue" como ultima opcao no dropdown e no Kanban (opcional, so na lista pode ser suficiente).
+**Arquivo**: `src/pages/Producao.tsx`
 
 ---
 
-## 2. Financeiro -- Separar Pagos/Pendentes no Pagarme
+## 2. Responsividade Global
 
-Na aba Pagar.me do Financeiro:
-- Separar as transacoes em duas sub-abas: **"Pagos"** e **"Pendentes"**
-- Agrupar pedidos pagos por periodo de deposito (data de pagamento `paid_at`) para facilitar conferencia com os depositos recebidos da Pagarme
+Tornar todas as paginas mobile-friendly:
 
----
+### AppLayout / Sidebar
+- Sidebar ja usa componente colapsavel -- verificar comportamento mobile
+- No header, garantir que o `SidebarTrigger` funcione como hamburger no mobile
 
-## 3. Contabilizar Taxas Pagarme nos Pedidos
+### Pedidos
+- Tabela: usar cards empilhados no mobile em vez de tabela horizontal
+- Botoes de sync/novo: empilhar verticalmente no mobile
+- Search: largura `w-full` no mobile
 
-Criar logica no sync da Nuvemshop para buscar a taxa correspondente do Pagarme:
-- Ao sincronizar, usar o `order_code` do Pagarme (que corresponde ao numero do pedido Nuvemshop) para preencher `taxa_pagarme` na tabela `pedidos`
-- Recalcular `valor_liquido = valor_bruto - frete - taxa_pagarme`
+### Dashboard
+- KPI cards: `grid-cols-2` no mobile (2x2) em vez de 4 colunas
+- Graficos: altura menor no mobile, labels menores
 
-Alternativa mais pratica: criar uma funcao no `nuvemshop-sync` que, apos importar pedidos, consulta a edge function `pagarme-extrato` para cruzar e atualizar os valores.
+### Financeiro
+- Tabs: scroll horizontal no mobile
+- Cards de resumo: `grid-cols-2` no mobile
+- Tabelas: scroll horizontal com `overflow-x-auto`
 
----
+### Producao (Kanban)
+- Colunas com scroll horizontal touch-friendly
+- Cards com fonte menor no mobile
 
-## 4. Producao (Kanban) -- Cards Detalhados e Prazos
-
-### Aba "Prazos por Etapa"
-Nova aba na pagina de Producao mostrando os prazos definidos:
-
-| Etapa | Prazo |
-|-------|-------|
-| Corte | 4 dias |
-| Costura | 10 dias |
-| Acabamento | 2 dias |
-| Embalagem | 1 dia |
-| Despachado | 1 dia |
-
-### Sistema de Cores por Prazo
-Cada card no Kanban tera cor dinamica baseada no tempo na etapa:
-- **Azul claro**: dentro do prazo (< 50% do tempo estimado)
-- **Laranja**: entre 50% e 89% do tempo
-- **Vermelho**: >= 90% do tempo estimado
-
-Calculo: `percentual = horasNaEtapa / (prazoDias * 24) * 100`
-
-### Cards Compactos e Informativos
-Cada card mostrara:
-- Numero do pedido + origem (badge pequeno)
-- Nome do cliente
-- Telefone (icone + numero)
-- Cidade/Estado
-- Itens: lista compacta (ex: "2x Jaleco Branco P, 1x Scrub Azul M")
-- Tempo na etapa com indicador de cor
-
-Para isso, o hook `usePedidos` precisara carregar os itens junto (ou criar query separada para pedidos com itens no Kanban).
-
-### Layout das Colunas
-- Reduzir `min-w` das colunas de 260px para ~220px
-- Planejamento tera a mesma largura das demais (atualmente todas sao iguais, entao so ajustar o tamanho geral)
-- Melhorar a fluidez do drag-and-drop com feedback visual (highlight da coluna ao arrastar sobre ela)
+**Arquivos**: `src/pages/Pedidos.tsx`, `src/pages/Dashboard.tsx`, `src/pages/Financeiro.tsx`, `src/pages/Producao.tsx`, `src/components/layout/AppLayout.tsx`
 
 ---
 
-## 5. Logo 4x Maior
+## 3. Taxas Pagarme nos Pedidos (Sync)
 
-No `AppSidebar.tsx`:
-- Sidebar expandida: `h-10` -> `h-40` (4x)
-- Sidebar colapsada: `h-7` -> `h-28` (4x)
+Atualizar `nuvemshop-sync` para cruzar com Pagarme:
+- Apos importar os pedidos, buscar charges do Pagarme via API
+- Cruzar pelo `order_code` (numero do pedido) com `numero_pedido`
+- Popular `taxa_pagarme` e recalcular `valor_liquido` em cada pedido
+
+**Arquivo**: `supabase/functions/nuvemshop-sync/index.ts`
+
+---
+
+## 4. Dashboard Profissional com Filtros e Dados Financeiros/Producao
+
+### Filtros
+- Seletor de periodo: "Este Mes", "Ultimo Mes", "Ultimos 3 Meses", "Ultimos 6 Meses", "Personalizado"
+- Ao mudar, todos os KPIs e graficos atualizam
+
+### KPI Cards (linha superior)
+- **Pedidos do Mes** (com variacao % vs mes anterior)
+- **Faturamento Bruto**
+- **Faturamento Liquido**
+- **Ticket Medio**
+- **Clientes Novos**
+
+### Secao Financeira (nova)
+Cards menores em linha:
+- **Taxas Pagarme** (total do periodo)
+- **Frete / Correios** (total)
+- **Comissoes** (total)
+- **Lucro Operacional** (bruto - taxas - frete - comissoes)
+
+### Secao Producao (nova)
+- Card com indicadores visuais: "No Prazo" (azul/verde), "Atencao" (laranja), "Atrasado" (vermelho)
+- Conta quantos pedidos estao em cada status de prazo usando a mesma logica `getCardColor`
+- Grafico horizontal de etapas com cores correspondentes
+
+### Graficos
+- Faturamento mensal (bar chart, cor rose)
+- Pedidos por origem (pie chart)
+- Mini-tabela dos ultimos 5 pedidos
+
+**Arquivos**: `src/hooks/useDashboardStats.ts` (expandir query com dados financeiros e producao), `src/pages/Dashboard.tsx` (reescrever com filtros e novas secoes)
+
+---
+
+## 5. Comissoes no Financeiro -- Marcar como Pago com Data
+
+Na aba "Comissoes":
+- Mostrar TODOS os pedidos com comissao (nao so pendentes)
+- Coluna "Status" com badge Pago/Pendente
+- Coluna "Data Pagamento" editavel (date picker) -- ao marcar como pago, preenche a data
+- Botao "Pagar" abre um mini-form com campo de data (default = hoje)
+- Pedidos pagos ficam na mesma lista, so muda o status visual
+- Campo de comissao editavel inline (click para editar o valor)
+
+**Arquivo**: `src/pages/Financeiro.tsx`
 
 ---
 
 ## Detalhes Tecnicos
 
-### Arquivos a editar
+### Kanban Optimistic Update
 
 ```text
-src/pages/Pedidos.tsx
-  - Adicionar Tabs (Pagos / Pendentes)
-  - Substituir Badge da etapa por Select dropdown
-  - Importar useUpdatePedido
+// Estado local inicializado a partir dos dados do servidor
+const [localPedidos, setLocalPedidos] = useState(pedidos)
 
-src/pages/Producao.tsx
-  - Reescrever cards com dados detalhados (cliente, tel, endereco, itens)
-  - Adicionar sistema de cores por prazo
-  - Adicionar aba "Prazos" 
-  - Reduzir largura das colunas
-  - Melhorar feedback visual do drag-and-drop
-  - Carregar pedido_itens junto
-
-src/pages/Financeiro.tsx
-  - Na aba Pagarme, separar em Pagos/Pendentes
-  - Agrupar pagos por data de deposito
-
-src/hooks/usePedidos.ts
-  - Criar hook usePedidosComItens() que faz join de pedidos + pedido_itens
-
-src/components/layout/AppSidebar.tsx
-  - Aumentar tamanho da logo 4x
-
-supabase/functions/nuvemshop-sync/index.ts
-  - Apos sync, cruzar com Pagarme para popular taxa_pagarme
+// No handleDrop:
+// 1. Atualiza estado local IMEDIATAMENTE
+setLocalPedidos(prev => prev.map(p => 
+  p.id === pedidoId ? {...p, etapa_producao: novaEtapa, etapa_entrada_em: now} : p
+))
+// 2. Salva no banco em background
+updatePedido.mutate(...)
 ```
 
-### Prazos por Etapa (constante)
+### Dashboard Stats Expandido
+
+A query `useDashboardStats` passara a aceitar um parametro de periodo e retornara:
 
 ```text
-const PRAZOS_ETAPA: Record<string, number> = {
-  Corte: 4,
-  Costura: 10,
-  Acabamento: 2,
-  Embalagem: 1,
-  Despachado: 1,
-};
+{
+  totalPedidosMes, faturamentoBruto, faturamentoLiquido, ticketMedio, clientesNovos,
+  totalTaxasPagarme, totalFrete, totalComissoes, lucroOperacional,
+  producao: { noPrazo: number, atencao: number, atrasado: number },
+  revenueByMonth, byOrigin, byEtapa
+}
 ```
 
-### Logica de Cor do Card
+### Sync Pagarme nos Pedidos
+
+No `nuvemshop-sync`, apos importar todos os pedidos:
 
 ```text
-function getCardColor(etapa, etapa_entrada_em):
-  prazo = PRAZOS_ETAPA[etapa]
-  if (!prazo || !etapa_entrada_em) return "default"
-  horasPassadas = differenceInHours(now, etapa_entrada_em)
-  percentual = horasPassadas / (prazo * 24) * 100
-  if percentual >= 90: return "red" (border-red-400)
-  if percentual >= 50: return "orange" (border-orange-400)
-  return "blue" (border-blue-300)
+1. Buscar charges do Pagarme (via fetch direto a API, nao via edge function)
+2. Para cada charge com order_code, buscar pedido com numero_pedido = order_code
+3. Atualizar taxa_pagarme e recalcular valor_liquido e comissao
 ```
-
-### Criterio Pago vs Pendente (Pedidos)
-
-Considerar pago quando:
-- Nuvemshop: status original era "paid", "closed" ou "shipped" (o sync ja importa esses)
-- O `valor_bruto > 0` e `etapa_producao` nao e "Novo" nem "Cancelado"
-
-Pendente: `etapa_producao = 'Novo'` ou pedido sem confirmacao.
 
 ### Ordem de implementacao
 
-1. Logo 4x maior (rapido)
-2. Pedidos: abas Pagos/Pendentes + dropdown de etapa
-3. Producao: cards detalhados + cores por prazo + aba prazos + colunas menores
-4. Financeiro: separar pagos/pendentes no Pagarme + agrupamento
-5. Sync: cruzar taxa Pagarme nos pedidos
+1. Kanban com optimistic updates e touch support
+2. Responsividade em todas as paginas
+3. Dashboard expandido com filtros, financeiro e producao
+4. Comissoes com data de pagamento e edicao de valor
+5. Sync Pagarme -> taxa nos pedidos
