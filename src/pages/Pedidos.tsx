@@ -21,8 +21,8 @@ function formatCurrency(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
-function isPago(p: { etapa_producao: string | null; valor_bruto: number; taxa_pagarme: number }) {
-  return Number(p.taxa_pagarme) > 0;
+function isPago(p: any) {
+  return p.status_pagamento === "recebido";
 }
 
 export default function Pedidos() {

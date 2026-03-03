@@ -1,0 +1,1 @@
+ALTER TABLE public.pedidos ADD COLUMN status_pagamento text NOT NULL DEFAULT 'pendente';

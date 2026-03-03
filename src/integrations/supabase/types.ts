@@ -142,6 +142,7 @@ export type Database = {
           nuvemshop_order_id: number | null
           origem: string
           rastreio_codigo: string | null
+          status_pagamento: string
           superfrete_order_id: string | null
           taxa_pagarme: number
           updated_at: string
@@ -172,6 +173,7 @@ export type Database = {
           nuvemshop_order_id?: number | null
           origem?: string
           rastreio_codigo?: string | null
+          status_pagamento?: string
           superfrete_order_id?: string | null
           taxa_pagarme?: number
           updated_at?: string
@@ -202,6 +204,7 @@ export type Database = {
           nuvemshop_order_id?: number | null
           origem?: string
           rastreio_codigo?: string | null
+          status_pagamento?: string
           superfrete_order_id?: string | null
           taxa_pagarme?: number
           updated_at?: string

@@ -176,6 +176,8 @@ Deno.serve(async (req) => {
       else if (order.shipping_status === "shipped") etapa = "Despachado";
       else if (order.status === "cancelled") etapa = "Cancelado";
 
+      const statusPagamento = order.payment_status === "paid" ? "recebido" : "pendente";
+
       const pedidoData: any = {
         numero_pedido: String(order.number || order.id),
         nuvemshop_order_id: order.id,
@@ -195,6 +197,7 @@ Deno.serve(async (req) => {
         rastreio_codigo: rastreioCodigo,
         vendedor_id: WILLIAM_VENDEDOR_ID,
         comissao,
+        status_pagamento: statusPagamento,
       };
 
       const existingId = pedidoMap.get(order.id);
