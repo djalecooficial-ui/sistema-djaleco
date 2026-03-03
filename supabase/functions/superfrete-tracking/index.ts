@@ -45,39 +45,51 @@ serve(async (req) => {
     // Try to get tracking info from SuperFrete
     let trackingData: any = null;
 
+    async function fetchJsonSafely(url: string, options?: RequestInit) {
+      const res = await fetch(url, options);
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        const text = await res.text();
+        console.error(`Expected JSON but got ${contentType}. Status: ${res.status}. Preview: ${text.substring(0, 200)}`);
+        throw new Error(`SuperFrete API returned ${res.status} with non-JSON response`);
+      }
+      if (!res.ok) {
+        const body = await res.text();
+        console.error(`SuperFrete API error ${res.status}:`, body.substring(0, 300));
+        throw new Error(`SuperFrete API error: ${res.status}`);
+      }
+      return res.json();
+    }
+
     if (superfreteOrderId) {
-      // Query by SuperFrete order ID
-      const res = await fetch(`https://api.superfrete.com/api/v0/order/info/${superfreteOrderId}`, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "User-Agent": "Djaleco App",
-          Accept: "application/json",
-        },
-      });
-      if (res.ok) {
-        trackingData = await res.json();
-      } else {
-        console.error("SuperFrete order info error:", res.status, await res.text());
+      try {
+        trackingData = await fetchJsonSafely(`https://api.superfrete.com/api/v0/order/info/${superfreteOrderId}`, {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "User-Agent": "Djaleco App",
+            Accept: "application/json",
+          },
+        });
+      } catch (e) {
+        console.error("SuperFrete order info error:", e.message);
       }
     }
 
     if (!trackingData && trackingCode) {
-      // Query by tracking code
-      const res = await fetch(`https://api.superfrete.com/api/v0/tracking`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "User-Agent": "Djaleco App",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ orders: [{ tracking: trackingCode }] }),
-      });
-      if (res.ok) {
-        const result = await res.json();
+      try {
+        const result = await fetchJsonSafely(`https://api.superfrete.com/api/v0/tracking`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "User-Agent": "Djaleco App",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ orders: [{ tracking: trackingCode }] }),
+        });
         trackingData = result?.data?.[0] || result;
-      } else {
-        console.error("SuperFrete tracking error:", res.status, await res.text());
+      } catch (e) {
+        console.error("SuperFrete tracking error:", e.message);
       }
     }
 
