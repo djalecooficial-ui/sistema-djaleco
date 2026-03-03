@@ -1,49 +1,42 @@
 
 
-# Plano: Comissoes por canal, exclusao de pedido e explicacao SuperFrete
+## Diagnóstico e Plano de Ação
 
-## 1. Vendedores — Comissoes independentes por canal (WhatsApp e Site)
+### Problemas Identificados
 
-**Migration:** Adicionar colunas na tabela `vendedores`:
-```sql
-ALTER TABLE public.vendedores 
-  ADD COLUMN taxa_comissao_site numeric NOT NULL DEFAULT 10.00,
-  ADD COLUMN taxa_comissao_whatsapp numeric NOT NULL DEFAULT 10.00;
-```
-A coluna `taxa_comissao` existente sera mantida como fallback/legado.
+**1. Taxas Pagar.me (problema principal)**
+Executei o sync agora e ele atualizou apenas **21 de 423 pedidos**. O motivo: a API do Pagar.me retornou apenas **30 charges** nos últimos 6 meses. Os pedidos mais antigos (desde 2022) não têm correspondência na API. Isso pode significar:
+- O Pagar.me só retém dados recentes na API de charges
+- A janela de 6 meses é insuficiente (precisa ampliar)
 
-**`src/pages/Vendedores.tsx`:**
-- Na tabela, trocar coluna unica "Comissao" por duas: "Comissao Site" e "Comissao WhatsApp"
-- No formulario de criar/editar, dois campos separados: "Comissao Site (%)" e "Comissao WhatsApp (%)"
+Além disso, o sync usa `taxa_comissao` genérica, mas a tabela tem `taxa_comissao_site` e `taxa_comissao_whatsapp`. O cálculo deveria usar a taxa correta conforme a `origem` do pedido.
 
-**`src/hooks/useVendedores.ts`:** Nenhuma mudanca necessaria (ja usa generic insert/update).
+**2. Comissões**
+Após o sync de agora, os valores de William Nogueira mudaram (R$24.196,93 total / R$24.127,54 pendente) porque 21 pedidos tiveram a comissão recalculada com as taxas do Pagar.me. Porém, os ~400 pedidos restantes ainda usam comissão calculada sem taxa (taxa_pagarme = 0), inflando o valor.
 
-**`src/pages/PedidoDetalhe.tsx` e `src/pages/NovoPedido.tsx`:**
-- Ao calcular comissao, usar `taxa_comissao_site` ou `taxa_comissao_whatsapp` conforme a `origem` do pedido ("site" ou "whatsapp")
+**3. Gráficos do Dashboard**
+Concordo que os gráficos de pizza e barras estão simples demais. O usuário quer removê-los ou substituí-los.
 
-**`src/integrations/supabase/types.ts`:** Atualizar tipos para incluir as novas colunas.
+---
 
-## 2. Botao de exclusao de pedido
+### Plano de Implementação
 
-**`src/pages/PedidoDetalhe.tsx`:**
-- Adicionar botao "Excluir Pedido" (vermelho, com icone Trash2) no header do pedido
-- Ao clicar, abrir AlertDialog perguntando "Tem certeza que deseja excluir este pedido?"
-- Se confirmar, deleta o pedido via Supabase e redireciona para `/pedidos`
+#### 1. Redesign do Dashboard
+- **Remover** os 4 gráficos (Faturamento Mensal, Pedidos por Origem, Etapas da Produção, Últimos Pedidos pie chart)
+- **Manter** apenas os KPI boxes (Pedidos, Fat. Bruto, Fat. Líquido, Ticket Médio, Clientes Novos) + Financeiro boxes + Produção boxes
+- **Manter** a seção "Últimos Pedidos" como lista (sem gráfico)
+- **Trocar o filtro** de 4 presets para: seletor de **Ano + Mês** (como no Financeiro) e modo **Personalizado** com date range
 
-**`src/hooks/usePedidos.ts`:** Adicionar hook `useDeletePedido` (mutation que deleta da tabela `pedidos`).
+#### 2. Corrigir Sync Pagar.me
+- **Ampliar janela** de 6 meses para **24 meses** para cobrir mais pedidos
+- **Corrigir cálculo de comissão** no sync: usar `taxa_comissao_site` ou `taxa_comissao_whatsapp` conforme `pedido.origem`
+- Adicionar o campo `origem` na query de pedidos do sync
 
-## 3. SuperFrete — como funciona
+#### 3. Recalcular Comissões
+- Após o sync atualizar as taxas, a comissão é recalculada automaticamente. Os valores no Financeiro vão refletir os números corretos assim que mais pedidos tiverem a `taxa_pagarme` preenchida.
 
-Sobre a pergunta do usuario, responderei diretamente no chat:
-
-- **Rastreio e entrega:** A Edge Function `superfrete-tracking` ja esta implementada. Quando um pedido tem `rastreio_codigo` ou `superfrete_order_id`, o botao "Consultar SuperFrete" chama a API do SuperFrete, busca o status de rastreio e, se entregue, atualiza `data_entrega` e etapa para "Entregue" automaticamente.
-- **Calculo de frete:** A API do SuperFrete permite calcular o valor do frete informando CEP de origem, CEP de destino, peso e dimensoes do pacote. Porem, para isso funcionar no formulario de novo pedido, seria necessario cadastrar peso/dimensoes dos produtos — que nao temos hoje. Por enquanto o frete permanece manual. Se o usuario quiser, podemos adicionar campos de peso/dimensao nos produtos futuramente.
-
-## Arquivos afetados
-- Migration SQL — novas colunas `taxa_comissao_site` e `taxa_comissao_whatsapp` em `vendedores`
-- `src/integrations/supabase/types.ts` — atualizar tipos
-- `src/pages/Vendedores.tsx` — formulario e tabela com comissoes por canal
-- `src/pages/PedidoDetalhe.tsx` — botao excluir pedido, usar comissao por canal
-- `src/pages/NovoPedido.tsx` — usar comissao por canal ao salvar
-- `src/hooks/usePedidos.ts` — adicionar `useDeletePedido`
+### Arquivos a Modificar
+- `src/pages/Dashboard.tsx` - Remover gráficos, novo filtro por mês
+- `src/hooks/useDashboardStats.ts` - Adaptar query ao novo formato de filtro (ano+mês+custom)
+- `supabase/functions/pagarme-fees-sync/index.ts` - Ampliar janela, corrigir taxa por origem
 
