@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { differenceInHours } from "date-fns";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Phone, MapPin, Clock } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 
@@ -37,15 +37,19 @@ function formatTimeInStage(etapa_entrada_em: string | null) {
   return `${Math.floor(hours / 24)}d`;
 }
 
+const DRAG_THRESHOLD = 10; // pixels to distinguish tap from drag
+
 export default function Producao() {
   const { data: pedidos } = usePedidosComItens();
   const updatePedido = useUpdatePedido();
+  const navigate = useNavigate();
   const [dragOverEtapa, setDragOverEtapa] = useState<string | null>(null);
   const [localPedidos, setLocalPedidos] = useState<PedidoComItens[]>([]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const dragItemRef = useRef<string | null>(null);
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const isDraggingRef = useRef(false);
 
-  // Sync server data to local state
   useEffect(() => {
     if (pedidos) setLocalPedidos(pedidos);
   }, [pedidos]);
@@ -60,55 +64,74 @@ export default function Producao() {
 
   const handleDrop = useCallback((pedidoId: string, novaEtapa: string) => {
     setDragOverEtapa(null);
+    setDraggingId(null);
     const now = new Date().toISOString();
 
-    // 1. Optimistic: update local state INSTANTLY
     setLocalPedidos((prev) =>
       prev.map((p) =>
         p.id === pedidoId ? { ...p, etapa_producao: novaEtapa, etapa_entrada_em: now } : p
       )
     );
 
-    // 2. Persist in background
     updatePedido.mutate(
       { id: pedidoId, etapa_producao: novaEtapa, etapa_entrada_em: now },
       {
         onSuccess: () => toast.success(`Movido para ${novaEtapa}`),
         onError: () => {
           toast.error("Erro ao mover pedido");
-          // Revert on error
           if (pedidos) setLocalPedidos(pedidos);
         },
       }
     );
   }, [updatePedido, pedidos]);
 
-  // Touch handlers for mobile drag
   const handleTouchStart = useCallback((e: React.TouchEvent, pedidoId: string) => {
+    e.preventDefault(); // Prevent link context menu
     dragItemRef.current = pedidoId;
+    isDraggingRef.current = false;
     const touch = e.touches[0];
-    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!dragItemRef.current) return;
-    e.preventDefault();
+    if (!dragItemRef.current || !touchStartRef.current) return;
     const touch = e.touches[0];
-    const el = document.elementFromPoint(touch.clientX, touch.clientY);
-    const col = el?.closest("[data-etapa]");
-    if (col) {
-      setDragOverEtapa(col.getAttribute("data-etapa"));
+    const dx = touch.clientX - touchStartRef.current.x;
+    const dy = touch.clientY - touchStartRef.current.y;
+    
+    if (!isDraggingRef.current && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+      isDraggingRef.current = true;
+      setDraggingId(dragItemRef.current);
+    }
+
+    if (isDraggingRef.current) {
+      e.preventDefault();
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      const col = el?.closest("[data-etapa]");
+      if (col) {
+        setDragOverEtapa(col.getAttribute("data-etapa"));
+      }
     }
   }, []);
 
   const handleTouchEnd = useCallback(() => {
-    if (dragItemRef.current && dragOverEtapa) {
-      handleDrop(dragItemRef.current, dragOverEtapa);
+    const startInfo = touchStartRef.current;
+    const pedidoId = dragItemRef.current;
+
+    if (pedidoId && isDraggingRef.current && dragOverEtapa) {
+      // Was dragging → drop
+      handleDrop(pedidoId, dragOverEtapa);
+    } else if (pedidoId && startInfo && !isDraggingRef.current) {
+      // Quick tap → navigate
+      navigate(`/pedidos/${pedidoId}`);
     }
+
     dragItemRef.current = null;
     touchStartRef.current = null;
+    isDraggingRef.current = false;
+    setDraggingId(null);
     setDragOverEtapa(null);
-  }, [dragOverEtapa, handleDrop]);
+  }, [dragOverEtapa, handleDrop, navigate]);
 
   return (
     <AppLayout>
@@ -171,14 +194,20 @@ export default function Producao() {
                           <div
                             key={p.id}
                             draggable
-                            onDragStart={(e) => e.dataTransfer.setData("pedidoId", p.id)}
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("pedidoId", p.id);
+                              setDraggingId(p.id);
+                            }}
+                            onDragEnd={() => setDraggingId(null)}
                             onTouchStart={(e) => handleTouchStart(e, p.id)}
                             onTouchMove={handleTouchMove}
                             onTouchEnd={handleTouchEnd}
-                            className={`p-1.5 sm:p-2 rounded-md border-2 cursor-grab active:cursor-grabbing hover:shadow-sm transition-all text-[10px] sm:text-[11px] select-none ${colorClass}`}
+                            className={`p-1.5 sm:p-2 rounded-md border-2 cursor-grab active:cursor-grabbing hover:shadow-sm transition-all text-[10px] sm:text-[11px] select-none ${colorClass} ${
+                              draggingId === p.id ? "opacity-50 scale-95" : ""
+                            }`}
                             style={{ touchAction: "none" }}
                           >
-                            <Link to={`/pedidos/${p.id}`} className="block space-y-0.5 sm:space-y-1">
+                            <div className="block space-y-0.5 sm:space-y-1">
                               <div className="flex items-center justify-between">
                                 <span className="font-semibold text-primary">#{p.numero_pedido}</span>
                                 <Badge variant="outline" className="text-[8px] sm:text-[9px] px-1 py-0">{p.origem}</Badge>
@@ -204,7 +233,7 @@ export default function Producao() {
                                   <Clock className="h-2 w-2 sm:h-2.5 sm:w-2.5" />{timeStr} nesta etapa
                                 </p>
                               )}
-                            </Link>
+                            </div>
                           </div>
                         );
                       })}

@@ -1,16 +1,26 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
 
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches ||
+    (window.navigator as any).standalone === true;
+}
+
 export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [showManualInstall, setShowManualInstall] = useState(false);
 
   useEffect(() => {
-    // Check if already installed
-    const isStandalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as any).standalone === true;
-    setIsInstalled(isStandalone);
+    if (isStandalone()) {
+      setIsInstalled(true);
+      return;
+    }
 
     const handler = (e: Event) => {
       e.preventDefault();
@@ -18,13 +28,23 @@ export function usePWAInstall() {
     };
 
     window.addEventListener("beforeinstallprompt", handler);
-
     window.addEventListener("appinstalled", () => {
       setIsInstalled(true);
       setDeferredPrompt(null);
+      setShowManualInstall(false);
     });
 
-    return () => window.removeEventListener("beforeinstallprompt", handler);
+    // Fallback: if no prompt after 3s (iOS or conditions not met), show manual instructions
+    const timeout = setTimeout(() => {
+      if (!isStandalone()) {
+        setShowManualInstall(true);
+      }
+    }, 3000);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handler);
+      clearTimeout(timeout);
+    };
   }, []);
 
   const install = useCallback(async () => {
@@ -42,6 +62,8 @@ export function usePWAInstall() {
     canInstall: !!deferredPrompt && !isInstalled,
     isInstalled,
     install,
+    showManualInstall: showManualInstall && !deferredPrompt && !isInstalled,
+    isIOSDevice: isIOS(),
   };
 }
 
@@ -51,7 +73,6 @@ export function usePWAUpdate() {
     updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(swUrl, registration) {
-      // Check for updates every 5 minutes
       if (registration) {
         setInterval(() => {
           registration.update();

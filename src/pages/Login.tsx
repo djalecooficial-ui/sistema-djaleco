@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import djalecoLogo from "@/assets/logo_Djaleco.png";
-import { LogIn, Download } from "lucide-react";
+import { LogIn, Download, Share, Plus } from "lucide-react";
 import { usePWAInstall } from "@/hooks/usePWA";
 
 export default function Login() {
@@ -15,7 +15,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { canInstall, install } = usePWAInstall();
+  const { canInstall, install, showManualInstall, isIOSDevice, isInstalled } = usePWAInstall();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,6 +86,21 @@ export default function Login() {
               <Download className="h-4 w-4" />
               Instalar Aplicativo
             </Button>
+          )}
+
+          {showManualInstall && !isInstalled && (
+            <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground space-y-2">
+              <p className="font-medium text-foreground">📱 Instale o app no celular</p>
+              {isIOSDevice ? (
+                <p className="flex items-center gap-1 flex-wrap">
+                  Toque em <Share className="h-4 w-4 inline text-primary" /> e depois em <span className="font-medium">"Adicionar à Tela de Início"</span> <Plus className="h-3 w-3 inline" />
+                </p>
+              ) : (
+                <p>
+                  Toque no menu <span className="font-medium">⋮</span> do navegador e selecione <span className="font-medium">"Instalar aplicativo"</span> ou <span className="font-medium">"Adicionar à tela inicial"</span>.
+                </p>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
