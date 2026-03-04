@@ -14,8 +14,10 @@ jobs:
           fetch-depth: 0
 
       - name: Push to destination repo
+        env:
+          DEST_TOKEN: ${{ secrets.DEST_TOKEN }}
         run: |
           git config user.email "sync@action.com"
           git config user.name "Sync Action"
-          git remote add dest https://x-access-token:${{ secrets.DEST_TOKEN }}@github.com/djalecooficial-ui/sistema-djaleco.git
+          git remote add dest https://vendavocenegocios-ux:${DEST_TOKEN}@github.com/djalecooficial-ui/sistema-djaleco.git
           git push dest main --force
