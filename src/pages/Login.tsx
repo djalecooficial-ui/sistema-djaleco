@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import djalecoLogo from "@/assets/logo_Djaleco.png";
+import djalecoLogo from "@/assets/logo_sistema_djaleco.png";
 import { LogIn, Download, Share, Plus } from "lucide-react";
 import { usePWAInstall } from "@/hooks/usePWA";
 
@@ -41,10 +41,10 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-sm">
+    <div className="min-h-screen flex items-center justify-center bg-black px-4">
+      <Card className="w-full max-w-sm bg-card">
         <CardHeader className="text-center space-y-4">
-          <img src={djalecoLogo} alt="Djaleco" className="h-24 w-auto mx-auto object-contain" />
+          <img src={djalecoLogo} alt="D.Jaleco Sistema de Gestão" className="h-48 w-auto mx-auto object-contain" />
           <CardTitle className="text-xl">Entrar no sistema</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
