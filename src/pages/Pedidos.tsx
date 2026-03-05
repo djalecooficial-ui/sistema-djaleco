@@ -125,20 +125,23 @@ export default function Pedidos() {
         })
         .join(", ") || "";
 
+      const origemLabel = p.origem === "whatsapp" ? "Zap" : "Site";
+
       const texto = [
-        `*${format(new Date(p.data_pedido), "dd/MM/yyyy")}*`,
-        `#${p.numero_pedido}`,
+        `*Data: ${format(new Date(p.data_pedido), "dd/MM/yyyy")}*`,
+        `*Pedido: #${p.numero_pedido} - ${origemLabel}*`,
         ``,
-        `NOME: ${p.cliente_nome}`,
-        `CELULAR: ${p.cliente_telefone || ""}`,
-        `PROFISSÃO: ${profissao}`,
-        `ENDEREÇO COMPLETO: ${endereco}`,
-        `BAIRRO: ${bairro}`,
-        `CIDADE: ${p.cidade || ""}`,
-        `ESTADO: ${p.estado || ""}`,
+        `Nome: ${p.cliente_nome}`,
+        `Celular: ${p.cliente_telefone || ""}`,
+        `Profissão: ${profissao}`,
+        `Endereço completo: ${endereco}`,
+        `Bairro: ${bairro}`,
+        `Cidade: ${p.cidade || ""}`,
+        `Estado: ${p.estado || ""}`,
         `CEP: ${cep}`,
         `CPF/CNPJ: ${documento}`,
-        `PEDIDO: ${pedidoDesc}`,
+        ``,
+        `Pedido: ${pedidoDesc}`,
       ].join("\n");
 
       await navigator.clipboard.writeText(texto);
