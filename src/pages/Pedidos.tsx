@@ -118,9 +118,13 @@ export default function Pedidos() {
 
       const pedidoDesc = itens
         .map((i) => {
-          let desc = `${i.quantidade}x ${i.nome_produto}`;
-          const extras = [i.cor, i.tamanho].filter(Boolean).join(", ");
-          if (extras) desc += ` (${extras})`;
+          const nome = i.nome_produto || "";
+          const cor = i.cor || "";
+          const tamanho = i.tamanho || "";
+          // Only add extras that aren't already in the product name
+          const extras = [cor, tamanho].filter((v) => v && !nome.toLowerCase().includes(v.toLowerCase()));
+          let desc = `${i.quantidade}x ${nome}`;
+          if (extras.length) desc += ` (${extras.join(", ")})`;
           return desc;
         })
         .join(", ") || "";
@@ -130,7 +134,6 @@ export default function Pedidos() {
       const texto = [
         `*Data: ${format(new Date(p.data_pedido), "dd/MM/yyyy")}*`,
         `*Pedido: #${p.numero_pedido} - ${origemLabel}*`,
-        ``,
         `Nome: ${p.cliente_nome}`,
         `Celular: ${p.cliente_telefone || ""}`,
         `Profissão: ${profissao}`,
