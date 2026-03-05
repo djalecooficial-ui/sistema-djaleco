@@ -91,15 +91,15 @@ export default function Login() {
           )}
 
           {showManualInstall && !isInstalled && (
-            <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground space-y-2">
-              <p className="font-medium text-foreground">📱 Instale o app no celular</p>
+            <div className="rounded-lg border border-primary/40 bg-black p-3 text-sm space-y-2">
+              <p className="font-medium text-white">📱 Instale o app no celular</p>
               {isIOSDevice ? (
-                <p className="flex items-center gap-1 flex-wrap">
-                  Toque em <Share className="h-4 w-4 inline text-primary" /> e depois em <span className="font-medium">"Adicionar à Tela de Início"</span> <Plus className="h-3 w-3 inline" />
+                <p className="flex items-center gap-1 flex-wrap text-primary">
+                  Toque em <Share className="h-4 w-4 inline text-primary" /> e depois em <span className="font-medium text-white">"Adicionar à Tela de Início"</span> <Plus className="h-3 w-3 inline" />
                 </p>
               ) : (
-                <p>
-                  Toque no menu <span className="font-medium">⋮</span> do navegador e selecione <span className="font-medium">"Instalar aplicativo"</span> ou <span className="font-medium">"Adicionar à tela inicial"</span>.
+                <p className="text-primary">
+                  Toque no menu <span className="font-medium text-white">⋮</span> do navegador e selecione <span className="font-medium text-white">"Instalar aplicativo"</span> ou <span className="font-medium text-white">"Adicionar à tela inicial"</span>.
                 </p>
               )}
             </div>

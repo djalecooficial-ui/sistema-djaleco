@@ -143,19 +143,26 @@ export default function Pedidos() {
         `Estado: ${p.estado || ""}`,
         `CEP: ${cep}`,
         `CPF/CNPJ: ${documento}`,
-        ``,
         `Pedido: ${pedidoDesc}`,
       ].join("\n");
 
       await navigator.clipboard.writeText(texto);
       toast.success("Copiado para a área de transferência!");
 
-      // Auto-advance from Comercial to Planejamento
+      // Ask to move to Planejamento if currently in Comercial
       if (p.etapa_producao === "Comercial") {
-        updatePedido.mutate(
-          { id: p.id, etapa_producao: "Planejamento", etapa_entrada_em: new Date().toISOString() },
-          { onSuccess: () => toast.success("Etapa avançada para Planejamento") }
-        );
+        toast("Deseja mover o pedido para Planejamento?", {
+          action: {
+            label: "Sim, mover",
+            onClick: () => {
+              updatePedido.mutate(
+                { id: p.id, etapa_producao: "Planejamento", etapa_entrada_em: new Date().toISOString() },
+                { onSuccess: () => toast.success("Etapa avançada para Planejamento") }
+              );
+            },
+          },
+          duration: 8000,
+        });
       }
     } catch {
       toast.error("Erro ao copiar dados do pedido");
