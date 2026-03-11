@@ -197,6 +197,12 @@ export default function Pedidos() {
         <span className="text-sm font-semibold">{formatCurrency(Number(p.valor_bruto))}</span>
         <span className="text-xs text-muted-foreground">{format(new Date(p.data_pedido), "dd/MM/yyyy")}</span>
       </div>
+      {p.rastreio_codigo && (
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Package className="h-3.5 w-3.5 text-green-600" />
+          {p.rastreio_codigo}
+        </div>
+      )}
       <Select value={p.etapa_producao || ""} onValueChange={(v) => handleEtapaChange(p.id, v)}>
         <SelectTrigger className="w-full h-8 text-xs">
           <SelectValue placeholder="Etapa" />
