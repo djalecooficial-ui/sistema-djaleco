@@ -180,7 +180,7 @@ export default function Pedidos() {
 
   // Mobile card view for a pedido
   const renderMobileCard = (p: typeof pagos[0]) => (
-    <Card key={p.id} className="p-3 space-y-2">
+    <Card key={p.id} className={`p-3 space-y-2 ${p.etapa_producao === "Entregue" ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900" : ""}`}>
       <div className="flex items-center justify-between">
         <Link to={`/pedidos/${p.id}`} className="font-medium text-primary hover:underline text-sm">
           #{p.numero_pedido}
@@ -241,7 +241,7 @@ export default function Pedidos() {
                 <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Nenhum pedido encontrado</TableCell></TableRow>
               ) : (
                 items.map((p) => (
-                  <TableRow key={p.id}>
+                  <TableRow key={p.id} className={p.etapa_producao === "Entregue" ? "bg-green-50 dark:bg-green-950/30" : ""}>
                     <TableCell>
                       <Link to={`/pedidos/${p.id}`} className="font-medium text-primary hover:underline">
                         #{p.numero_pedido}
