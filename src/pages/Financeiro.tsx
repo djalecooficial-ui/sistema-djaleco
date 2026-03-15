@@ -178,8 +178,8 @@ export default function Financeiro() {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, valor]) => ({ name: format(new Date(month + "-01"), "MMM/yy", { locale: ptBR }), valor }));
 
-  // All pedidos with comissao
-  const comissoesTodas = allPedidos.filter((p) => Number(p.comissao) > 0);
+  // All pedidos with comissao (exclude unpaid/pending)
+  const comissoesTodas = allPedidos.filter((p) => Number(p.comissao) > 0 && p.status_pagamento !== "pendente");
 
   const handlePagarComissao = (pedidoId: string, date: Date) => {
     updatePedido.mutate(
