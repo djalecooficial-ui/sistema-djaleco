@@ -186,8 +186,35 @@ export default function Financeiro() {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, valor]) => ({ name: format(new Date(month + "-01"), "MMM/yy", { locale: ptBR }), valor }));
 
-  // All pedidos with comissao (exclude unpaid/pending)
-  const comissoesTodas = allPedidos.filter((p) => Number(p.comissao) > 0 && p.status_pagamento !== "pendente");
+  // All pedidos with comissao (exclude unpaid/pending), filtered by period
+  const comissoesTodas = useMemo(() => {
+    let filtered = allPedidos.filter((p) => Number(p.comissao) > 0 && p.status_pagamento !== "pendente");
+
+    if (comFilterType === "mes") {
+      filtered = filtered.filter(p => new Date(p.data_pedido).getFullYear().toString() === comYear);
+      if (comMonth !== "all") {
+        filtered = filtered.filter(p => (new Date(p.data_pedido).getMonth() + 1).toString() === comMonth);
+      }
+    } else {
+      if (comStartDate) filtered = filtered.filter(p => new Date(p.data_pedido) >= new Date(comStartDate));
+      if (comEndDate) filtered = filtered.filter(p => new Date(p.data_pedido) <= new Date(comEndDate + "T23:59:59"));
+    }
+
+    if (comVendedor !== "all") {
+      filtered = filtered.filter(p => p.vendedor_id === comVendedor);
+    }
+
+    return filtered;
+  }, [allPedidos, comFilterType, comYear, comMonth, comStartDate, comEndDate, comVendedor]);
+
+  // Summary totals for filtered commissions
+  const comTotalBruto = comissoesTodas.reduce((s, p) => s + Number(p.valor_bruto), 0);
+  const comTotalFrete = comissoesTodas.reduce((s, p) => s + Number(p.frete), 0);
+  const comTotalTaxa = comissoesTodas.reduce((s, p) => s + Number(p.taxa_pagarme), 0);
+  const comTotalLiquido = comissoesTodas.reduce((s, p) => s + Number(p.valor_liquido), 0);
+  const comTotalComissao = comissoesTodas.reduce((s, p) => s + Number(p.comissao), 0);
+  const comTotalPago = comissoesTodas.filter(p => p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
+  const comTotalPendente = comissoesTodas.filter(p => !p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
 
   const handlePagarComissao = (pedidoId: string, date: Date) => {
     updatePedido.mutate(
