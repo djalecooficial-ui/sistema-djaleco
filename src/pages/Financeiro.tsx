@@ -109,6 +109,14 @@ export default function Financeiro() {
   const [pgEndDate, setPgEndDate] = useState("");
   const [pgSubTab, setPgSubTab] = useState<"pagos" | "pendentes">("pagos");
 
+  // Comissão filters
+  const [comFilterType, setComFilterType] = useState<"mes" | "custom">("mes");
+  const [comYear, setComYear] = useState(currentYear);
+  const [comMonth, setComMonth] = useState("all");
+  const [comStartDate, setComStartDate] = useState("");
+  const [comEndDate, setComEndDate] = useState("");
+  const [comVendedor, setComVendedor] = useState("all");
+
   // Comissão inline edit state — now edits percentage
   const [editingComissao, setEditingComissao] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
