@@ -223,6 +223,13 @@ export default function Financeiro() {
     );
   };
 
+  const handleDesmarcarComissao = (pedidoId: string) => {
+    updatePedido.mutate(
+      { id: pedidoId, comissao_paga: false, comissao_paga_em: null },
+      { onSuccess: () => toast.success("Comissão revertida para pendente!") }
+    );
+  };
+
   // Now saves percentage and recalculates value
   const handleSaveComissao = (pedidoId: string) => {
     const percentual = parseFloat(editValue);
