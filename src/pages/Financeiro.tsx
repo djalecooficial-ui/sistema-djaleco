@@ -361,11 +361,70 @@ export default function Financeiro() {
 
         {tab === "comissoes" && (
           <>
+            {/* Filters */}
+            <Card className="p-3 sm:p-4">
+              <div className="flex flex-wrap items-end gap-2 sm:gap-3">
+                <div className="flex gap-2">
+                  <Button variant={comFilterType === "mes" ? "default" : "outline"} size="sm" onClick={() => setComFilterType("mes")}>Por Mês</Button>
+                  <Button variant={comFilterType === "custom" ? "default" : "outline"} size="sm" onClick={() => setComFilterType("custom")}>Personalizado</Button>
+                </div>
+
+                {comFilterType === "mes" ? (
+                  <div className="flex gap-2">
+                    <Select value={comYear} onValueChange={setComYear}>
+                      <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+                      <SelectContent>{years.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Select value={comMonth} onValueChange={setComMonth}>
+                      <SelectTrigger className="w-28 sm:w-36"><SelectValue /></SelectTrigger>
+                      <SelectContent>{MONTHS_LIST.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Input type="date" value={comStartDate} onChange={(e) => setComStartDate(e.target.value)} className="w-36 sm:w-40" />
+                    <span className="text-muted-foreground text-sm">até</span>
+                    <Input type="date" value={comEndDate} onChange={(e) => setComEndDate(e.target.value)} className="w-36 sm:w-40" />
+                  </div>
+                )}
+
+                <Select value={comVendedor} onValueChange={setComVendedor}>
+                  <SelectTrigger className="w-32 sm:w-40"><SelectValue placeholder="Vendedor" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos vendedores</SelectItem>
+                    {vendedores?.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </Card>
+
+            {/* Summary totals */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+              {[
+                { label: "Fat. Bruto", value: comTotalBruto },
+                { label: "Fat. Líquido", value: comTotalLiquido },
+                { label: "Total Comissões", value: comTotalComissao },
+                { label: "Comissões Pagas", value: comTotalPago, color: "text-green-600" },
+                { label: "Comissões Pendentes", value: comTotalPendente, color: "text-destructive" },
+              ].map(({ label, value, color }) => (
+                <Card key={label}>
+                  <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
+                    <CardTitle className="text-[11px] sm:text-sm font-medium text-muted-foreground">{label}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                    <div className={cn("text-base sm:text-xl font-bold", color)}>{formatCurrency(value)}</div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Vendor cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-              {vendedores?.map((v) => {
-                const pedidosVendedor = allPedidos.filter((p) => p.vendedor_id === v.id && p.status_pagamento !== "pendente");
+              {vendedores?.filter(v => comVendedor === "all" || v.id === comVendedor).map((v) => {
+                const pedidosVendedor = comissoesTodas.filter((p) => p.vendedor_id === v.id);
                 const totalCom = pedidosVendedor.reduce((s, p) => s + Number(p.comissao), 0);
                 const pendente = pedidosVendedor.filter((p) => !p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
+                if (totalCom === 0) return null;
                 return (
                   <Card key={v.id}>
                     <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
