@@ -167,7 +167,7 @@ export default function Financeiro() {
   const totalLiquido = filteredPedidos.reduce((s, p) => s + Number(p.valor_liquido), 0);
   const totalFrete = filteredPedidos.reduce((s, p) => s + Number(p.frete), 0);
   const totalTaxas = filteredPedidos.reduce((s, p) => s + Number(p.taxa_pagarme), 0);
-  const totalComissoes = filteredPedidos.reduce((s, p) => s + Number(p.comissao), 0);
+  const totalComissoes = filteredPedidos.filter(p => p.status_pagamento !== "pendente").reduce((s, p) => s + Number(p.comissao), 0);
 
   const revenueByMonth: Record<string, number> = {};
   filteredPedidos.forEach((p) => {
@@ -178,8 +178,8 @@ export default function Financeiro() {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, valor]) => ({ name: format(new Date(month + "-01"), "MMM/yy", { locale: ptBR }), valor }));
 
-  // All pedidos with comissao
-  const comissoesTodas = allPedidos.filter((p) => Number(p.comissao) > 0);
+  // All pedidos with comissao (exclude unpaid/pending)
+  const comissoesTodas = allPedidos.filter((p) => Number(p.comissao) > 0 && p.status_pagamento !== "pendente");
 
   const handlePagarComissao = (pedidoId: string, date: Date) => {
     updatePedido.mutate(
@@ -328,7 +328,7 @@ export default function Financeiro() {
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               {vendedores?.map((v) => {
-                const pedidosVendedor = allPedidos.filter((p) => p.vendedor_id === v.id);
+                const pedidosVendedor = allPedidos.filter((p) => p.vendedor_id === v.id && p.status_pagamento !== "pendente");
                 const totalCom = pedidosVendedor.reduce((s, p) => s + Number(p.comissao), 0);
                 const pendente = pedidosVendedor.filter((p) => !p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
                 return (
