@@ -328,7 +328,7 @@ export default function Financeiro() {
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               {vendedores?.map((v) => {
-                const pedidosVendedor = allPedidos.filter((p) => p.vendedor_id === v.id);
+                const pedidosVendedor = allPedidos.filter((p) => p.vendedor_id === v.id && p.status_pagamento !== "pendente");
                 const totalCom = pedidosVendedor.reduce((s, p) => s + Number(p.comissao), 0);
                 const pendente = pedidosVendedor.filter((p) => !p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
                 return (
