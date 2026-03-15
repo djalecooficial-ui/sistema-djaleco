@@ -521,7 +521,10 @@ export default function Financeiro() {
                             </TableCell>
                             <TableCell className="text-right font-medium">{formatCurrency(Number(p.comissao))}</TableCell>
                             <TableCell>
-                              <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-xs">
+                              <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-xs cursor-pointer"
+                                onClick={() => p.comissao_paga ? handleDesmarcarComissao(p.id) : undefined}
+                                title={p.comissao_paga ? "Clique para reverter" : ""}
+                              >
                                 {p.comissao_paga ? "Pago" : "Pendente"}
                               </Badge>
                             </TableCell>
@@ -529,7 +532,7 @@ export default function Financeiro() {
                               {p.comissao_paga_em ? format(new Date(p.comissao_paga_em), "dd/MM/yyyy") : "—"}
                             </TableCell>
                             <TableCell>
-                              {!p.comissao_paga && (
+                              {!p.comissao_paga ? (
                                 <Popover>
                                   <PopoverTrigger asChild>
                                     <Button size="sm" variant="outline" className="h-7 text-xs">
@@ -546,6 +549,10 @@ export default function Financeiro() {
                                     />
                                   </PopoverContent>
                                 </Popover>
+                              ) : (
+                                <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => handleDesmarcarComissao(p.id)}>
+                                  Reverter
+                                </Button>
                               )}
                             </TableCell>
                           </TableRow>
