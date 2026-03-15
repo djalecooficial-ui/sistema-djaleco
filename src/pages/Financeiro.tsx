@@ -406,9 +406,11 @@ export default function Financeiro() {
             </Card>
 
             {/* Summary totals */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
               {[
                 { label: "Fat. Bruto", value: comTotalBruto },
+                { label: "Frete / Correios", value: comTotalFrete },
+                { label: "Taxas Pagar.me", value: comTotalTaxa },
                 { label: "Fat. Líquido", value: comTotalLiquido },
                 { label: "Total Comissões", value: comTotalComissao },
                 { label: "Comissões Pagas", value: comTotalPago, color: "text-green-600" },
