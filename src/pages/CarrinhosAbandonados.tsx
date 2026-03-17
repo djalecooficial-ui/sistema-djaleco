@@ -80,7 +80,7 @@ export default function CarrinhosAbandonados() {
     }
     setSendingCartId(c.id);
     try {
-      const res = await fetch(webhookUrl, {
+      const res = await fetch(activeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
