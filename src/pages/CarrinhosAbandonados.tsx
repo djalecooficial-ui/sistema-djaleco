@@ -39,13 +39,6 @@ interface AbandonedCheckout {
 }
 
 const fetchAbandonedCarts = async (days: number): Promise<AbandonedCheckout[]> => {
-  const { data, error } = await supabase.functions.invoke("nuvemshop-abandoned", {
-    body: null,
-    headers: { "Content-Type": "application/json" },
-  });
-
-  // The edge function uses query params, but supabase.functions.invoke doesn't support them easily
-  // So we call it via fetch directly
   const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
   const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
