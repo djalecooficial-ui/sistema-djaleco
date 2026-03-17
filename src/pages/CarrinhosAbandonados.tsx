@@ -60,9 +60,16 @@ const fetchAbandonedCarts = async (days: number): Promise<AbandonedCheckout[]> =
   return res.json();
 };
 
+const WEBHOOK_OPTIONS = [
+  { label: "Produção", value: import.meta.env.VITE_N8N_WEBHOOK_URL || "" },
+  { label: "Teste", value: "https://n8n.vendavocenegocios.com.br/webhook-test/recuperar-carrinho" },
+];
+
 export default function CarrinhosAbandonados() {
   const [days, setDays] = useState("30");
   const [sendingCartId, setSendingCartId] = useState<number | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState(WEBHOOK_OPTIONS[0].value);
+  const [customWebhook, setCustomWebhook] = useState("");
   const isMobile = useIsMobile();
 
   const handleSendWebhook = async (c: AbandonedCheckout) => {
