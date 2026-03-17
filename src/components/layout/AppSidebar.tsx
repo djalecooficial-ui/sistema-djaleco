@@ -35,6 +35,7 @@ const mainItems = [
   { title: "Produção", url: "/producao", icon: Factory },
   { title: "Produtos", url: "/produtos", icon: Package },
   { title: "Clientes", url: "/clientes", icon: Users },
+  { title: "Carrinhos", url: "/carrinhos-abandonados", icon: ShoppingCart },
 ];
 
 const financeItems = [

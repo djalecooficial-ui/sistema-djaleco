@@ -16,6 +16,7 @@ const mainItems = [
 
 const moreItems = [
   { title: "Clientes", url: "/clientes", icon: Users },
+  { title: "Carrinhos", url: "/carrinhos-abandonados", icon: ShoppingCart },
   { title: "Financeiro", url: "/financeiro", icon: DollarSign },
   { title: "Vendedores", url: "/vendedores", icon: UserCog, adminOnly: true },
   { title: "Sistema", url: "/sistema", icon: Settings, adminOnly: true },
