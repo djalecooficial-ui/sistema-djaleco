@@ -1,16 +1,17 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { AppLayout } from "@/components/layout/AppLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ExternalLink, ShoppingCart, RefreshCw, AlertTriangle, CheckCircle2, User, Mail, Phone, Loader2, Webhook } from "lucide-react";
+import { ExternalLink, ShoppingCart, RefreshCw, AlertTriangle, CheckCircle2, Phone, Loader2, Webhook, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface AbandonedCheckout {
   id: number;
@@ -37,6 +38,26 @@ interface AbandonedCheckout {
   total: number;
   currency: string;
 }
+
+interface SentRecord {
+  sentAt: string;
+}
+
+const SENT_CARTS_KEY = "sent_carts";
+
+const getSentCarts = (): Record<string, SentRecord> => {
+  try {
+    return JSON.parse(localStorage.getItem(SENT_CARTS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+};
+
+const markCartAsSent = (cartId: number): void => {
+  const sent = getSentCarts();
+  sent[String(cartId)] = { sentAt: new Date().toISOString() };
+  localStorage.setItem(SENT_CARTS_KEY, JSON.stringify(sent));
+};
 
 const fetchAbandonedCarts = async (days: number): Promise<AbandonedCheckout[]> => {
   const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
@@ -68,12 +89,14 @@ const WEBHOOK_OPTIONS = [
 export default function CarrinhosAbandonados() {
   const [days, setDays] = useState("30");
   const [sendingCartId, setSendingCartId] = useState<number | null>(null);
+  const [sentCarts, setSentCarts] = useState<Record<string, SentRecord>>(getSentCarts);
   const savedWebhook = localStorage.getItem("webhook_url") || WEBHOOK_OPTIONS[0].value;
   const savedCustom = localStorage.getItem("webhook_custom") || "";
   const [webhookUrl, setWebhookUrl] = useState(savedWebhook);
   const [customWebhook, setCustomWebhook] = useState(savedCustom);
   const [activeWebhook, setActiveWebhook] = useState(savedWebhook === "__custom__" ? savedCustom : savedWebhook);
   const isDirty = (webhookUrl === "__custom__" ? customWebhook : webhookUrl) !== activeWebhook;
+  const isMobile = useIsMobile();
 
   const handleSaveWebhook = () => {
     const url = webhookUrl === "__custom__" ? customWebhook : webhookUrl;
@@ -83,9 +106,8 @@ export default function CarrinhosAbandonados() {
     localStorage.setItem("webhook_custom", customWebhook);
     toast.success("Webhook salvo!");
   };
-  const isMobile = useIsMobile();
 
-  const handleSendWebhook = async (c: AbandonedCheckout) => {
+  const handleSendWebhook = useCallback(async (c: AbandonedCheckout) => {
     if (!activeWebhook) {
       toast.error("Salve um webhook antes de enviar");
       return;
@@ -97,8 +119,7 @@ export default function CarrinhosAbandonados() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cart_id: String(c.id),
-          // Teste: substituir telefone do Fábio para testes
-          phone: c.customer.name === "Fábio Fonseca" ? "5521981089100" : (c.customer.phone?.replace(/\D/g, "") || ""),
+          phone: c.customer.phone?.replace(/\D/g, "") || "",
           customer_name: c.customer.name,
           total: c.total,
           recovery_url: c.recovery_url || "",
@@ -106,13 +127,15 @@ export default function CarrinhosAbandonados() {
         }),
       });
       if (!res.ok) throw new Error(`Erro ${res.status}`);
+      markCartAsSent(c.id);
+      setSentCarts(getSentCarts());
       toast.success("Mensagem enviada com sucesso!");
     } catch (err) {
       toast.error(`Falha ao enviar: ${err instanceof Error ? err.message : "Erro desconhecido"}`);
     } finally {
       setSendingCartId(null);
     }
-  };
+  }, [activeWebhook]);
 
   const { data: checkouts, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["abandoned-carts", days],
@@ -134,6 +157,24 @@ export default function CarrinhosAbandonados() {
   const handleRefresh = () => {
     refetch();
     toast.info("Atualizando carrinhos abandonados...");
+  };
+
+  const SentBadge = ({ cartId }: { cartId: number }) => {
+    const record = sentCarts[String(cartId)];
+    if (!record) return null;
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 gap-1 text-xs">
+            <Send className="h-3 w-3" />
+            Enviado
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent>
+          Enviado em {formatDate(record.sentAt)}
+        </TooltipContent>
+      </Tooltip>
+    );
   };
 
   return (
@@ -205,6 +246,7 @@ export default function CarrinhosAbandonados() {
             </div>
           </CardContent>
         </Card>
+
         {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card>
@@ -303,15 +345,18 @@ export default function CarrinhosAbandonados() {
                       </TableCell>
                       <TableCell className="text-right font-medium">{formatCurrency(c.total)}</TableCell>
                       <TableCell>
-                        {c.status === "recovered" ? (
-                          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                            <CheckCircle2 className="h-3 w-3 mr-1" /> Recuperado
-                          </Badge>
-                        ) : (
-                          <Badge variant="destructive">
-                            <AlertTriangle className="h-3 w-3 mr-1" /> Abandonado
-                          </Badge>
-                        )}
+                        <div className="flex flex-col gap-1">
+                          {c.status === "recovered" ? (
+                            <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
+                              <CheckCircle2 className="h-3 w-3 mr-1" /> Recuperado
+                            </Badge>
+                          ) : (
+                            <Badge variant="destructive">
+                              <AlertTriangle className="h-3 w-3 mr-1" /> Abandonado
+                            </Badge>
+                          )}
+                          <SentBadge cartId={c.id} />
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -367,11 +412,14 @@ export default function CarrinhosAbandonados() {
                       <p className="font-medium text-sm">{c.customer.name}</p>
                       <p className="text-xs text-muted-foreground">{formatDate(c.created_at)}</p>
                     </div>
-                    {c.status === "recovered" ? (
-                      <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs">Recuperado</Badge>
-                    ) : (
-                      <Badge variant="destructive" className="text-xs">Abandonado</Badge>
-                    )}
+                    <div className="flex flex-col items-end gap-1">
+                      {c.status === "recovered" ? (
+                        <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs">Recuperado</Badge>
+                      ) : (
+                        <Badge variant="destructive" className="text-xs">Abandonado</Badge>
+                      )}
+                      <SentBadge cartId={c.id} />
+                    </div>
                   </div>
 
                   <div className="text-sm space-y-1">
