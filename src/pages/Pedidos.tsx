@@ -161,7 +161,8 @@ export default function Pedidos() {
       ].join("\n");
 
       await navigator.clipboard.writeText(texto);
-      toast.success("Copiado para a área de transferência!");
+      console.log("[COPY DEBUG] texto copiado:", texto);
+      toast.success("Dados copiados com valores!");
 
       // Ask to move to Planejamento if currently in Comercial
       if (p.etapa_producao === "Comercial") {
