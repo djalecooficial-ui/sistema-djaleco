@@ -68,6 +68,7 @@ Deno.serve(async (req) => {
     }
 
     // Build base URLs with date filters
+    // Balance ops need +7 days margin because TED transfers happen after the charge
     let chargesBaseUrl = `https://api.pagar.me/core/v5/charges?`;
     let payablesBaseUrl = `https://api.pagar.me/core/v5/payables?`;
     let balanceOpsBaseUrl = `https://api.pagar.me/core/v5/balance/operations?`;
@@ -76,7 +77,11 @@ Deno.serve(async (req) => {
       const u = encodeURIComponent(createdUntil);
       chargesBaseUrl += `created_since=${s}&created_until=${u}`;
       payablesBaseUrl += `created_since=${s}&created_until=${u}`;
-      balanceOpsBaseUrl += `created_since=${s}&created_until=${u}`;
+      // Extend balance ops window by 7 days to capture TED transfers
+      const extendedEnd = new Date(createdUntil.replace("T23:59:59", ""));
+      extendedEnd.setDate(extendedEnd.getDate() + 7);
+      const extU = encodeURIComponent(extendedEnd.toISOString().split("T")[0] + "T23:59:59");
+      balanceOpsBaseUrl += `created_since=${s}&created_until=${extU}`;
     }
 
     // Fetch charges, payables, and balance operations in parallel
