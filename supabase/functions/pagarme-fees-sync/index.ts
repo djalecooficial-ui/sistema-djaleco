@@ -128,13 +128,19 @@ Deno.serve(async (req) => {
     }
     console.log(`Fee map entries (by nuvemshop_order_id): ${Object.keys(feeByNuvemshopId).length}`);
 
-    // 5. Fetch pedidos with taxa_pagarme = 0 that have nuvemshop_order_id
-    const { data: pedidos, error: pedidosError } = await supabase
+    // 5. Fetch pedidos that need fee sync
+    // resync_all: re-process all pedidos (to add transfer fees to previously synced ones)
+    // default: only pedidos with taxa_pagarme = 0
+    let query = supabase
       .from("pedidos")
-      .select("id, numero_pedido, nuvemshop_order_id, valor_bruto, frete, vendedor_id, origem")
-      .eq("taxa_pagarme", 0)
+      .select("id, numero_pedido, nuvemshop_order_id, valor_bruto, frete, vendedor_id, origem, taxa_pagarme")
       .gt("valor_bruto", 0)
       .not("nuvemshop_order_id", "is", null);
+    
+    if (!resyncAll) {
+      query = query.eq("taxa_pagarme", 0);
+    }
+    const { data: pedidos, error: pedidosError } = await query;
 
     if (pedidosError) throw new Error(`Error fetching pedidos: ${pedidosError.message}`);
     console.log(`Pedidos to check: ${pedidos?.length || 0}`);
