@@ -11,6 +11,9 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const reqUrl = new URL(req.url);
+  const resyncAll = reqUrl.searchParams.get("resync_all") === "true";
+
   try {
     const PAGARME_API_KEY = Deno.env.get("PAGARME_API_KEY");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
