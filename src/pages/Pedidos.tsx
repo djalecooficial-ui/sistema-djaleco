@@ -131,6 +131,13 @@ export default function Pedidos() {
 
       const origemLabel = p.origem === "whatsapp" ? "Zap" : "Site";
 
+      const valorBruto = Number(p.valor_bruto || 0);
+      const frete = Number(p.frete || 0);
+      const taxaPagarme = Number(p.taxa_pagarme || 0);
+      const valorLiquido = valorBruto - frete - taxaPagarme;
+      const comissao = Number(p.comissao || 0);
+      const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
       const texto = [
         `*Data: ${format(new Date(p.data_pedido), "dd/MM/yyyy")}*`,
         `*Pedido: #${p.numero_pedido} - ${origemLabel}*`,
@@ -144,6 +151,13 @@ export default function Pedidos() {
         `CEP: ${cep}`,
         `CPF/CNPJ: ${documento}`,
         `Pedido: ${pedidoDesc}`,
+        ``,
+        `*Valores:*`,
+        `Valor Bruto: ${fmt(valorBruto)}`,
+        `Frete: -${fmt(frete)}`,
+        `Taxa Pagar.me: -${fmt(taxaPagarme)}`,
+        `Valor Líquido: ${fmt(valorLiquido)}`,
+        `Comissão: ${fmt(comissao)}`,
       ].join("\n");
 
       await navigator.clipboard.writeText(texto);
