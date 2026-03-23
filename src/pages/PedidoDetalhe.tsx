@@ -163,9 +163,10 @@ export default function PedidoDetalhe() {
               <dl className="space-y-3 text-sm">
                 <div className="flex justify-between"><dt className="text-muted-foreground">Valor Bruto</dt><dd className="font-medium">{formatCurrency(Number(pedido.valor_bruto))}</dd></div>
                 <div className="flex justify-between"><dt className="text-muted-foreground">Frete</dt><dd>{formatCurrency(Number(pedido.frete))}</dd></div>
-                <div className="flex justify-between"><dt className="text-muted-foreground">Taxa Pagar.me</dt><dd>{formatCurrency(Number(pedido.taxa_pagarme))}</dd></div>
+                <div className="flex justify-between"><dt className="text-muted-foreground">Taxa Processamento</dt><dd>{formatCurrency(Number(pedido.taxa_pagarme))}</dd></div>
+                <div className="flex justify-between"><dt className="text-muted-foreground">Taxa TED {!(pedido as any).ted_confirmado && <span className="text-xs text-muted-foreground">(estimado)</span>}</dt><dd>{formatCurrency(Number((pedido as any).taxa_ted || 0))}</dd></div>
                 <div className="flex justify-between"><dt className="text-muted-foreground">Comissão</dt><dd>{formatCurrency(Number(pedido.comissao))}</dd></div>
-                <div className="flex justify-between border-t pt-3"><dt className="font-medium">Valor Líquido</dt><dd className="font-bold text-primary">{formatCurrency(Number(pedido.valor_liquido))}</dd></div>
+                <div className="flex justify-between border-t pt-3"><dt className="font-medium">Valor Líquido</dt><dd className="font-bold text-primary">{formatCurrency(Number(pedido.valor_bruto) - Number(pedido.frete) - Number(pedido.taxa_pagarme) - Number((pedido as any).taxa_ted || 0))}</dd></div>
               </dl>
               <div className="mt-4 pt-4 border-t space-y-3">
                 <div>

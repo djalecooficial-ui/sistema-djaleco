@@ -194,6 +194,8 @@ Deno.serve(async (req) => {
         valor_bruto: valorBruto,
         frete,
         taxa_pagarme: taxaPagarme,
+        taxa_ted: taxaTed,
+        ted_confirmado: false,
         valor_liquido: valorLiquido,
         rastreio_codigo: rastreioCodigo,
         vendedor_id: WILLIAM_VENDEDOR_ID,

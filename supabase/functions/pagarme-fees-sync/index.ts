@@ -30,7 +30,6 @@ Deno.serve(async (req) => {
     const createdSince = windowStart.toISOString().split("T")[0] + "T00:00:00";
     const size = 100;
 
-    // Helper to paginate Pagar.me API
     async function fetchAllPages(baseUrl: string, label: string, maxItems = 10000) {
       const all: any[] = [];
       let page = 1;
@@ -52,7 +51,6 @@ Deno.serve(async (req) => {
       return all;
     }
 
-    // 1. Fetch payables, charges, and balance operations (transfers) in parallel
     const [allPayables, allCharges, allBalanceOps] = await Promise.all([
       fetchAllPages(
         `https://api.pagar.me/core/v5/payables?created_since=${encodeURIComponent(createdSince)}`,
@@ -68,26 +66,19 @@ Deno.serve(async (req) => {
       ),
     ]);
 
-    // 2. Build processing fee map from payables: charge_id -> processing fee
+    // Processing fee map from payables: charge_id -> fee
     const feeByChargeId: Record<string, number> = {};
-    const amountByChargeId: Record<string, number> = {};
     for (const p of allPayables) {
       if (p.charge_id) {
         feeByChargeId[p.charge_id] = (feeByChargeId[p.charge_id] || 0) + (p.fee / 100);
-        amountByChargeId[p.charge_id] = (amountByChargeId[p.charge_id] || 0) + (p.amount / 100);
       }
     }
 
-    // 3. Calculate transfer fees and distribute proportionally
-    // Sort balance ops by created_at
+    // Transfer fee map: distribute TED fees proportionally
+    const transferFeeByChargeId: Record<string, number> = {};
     const sortedOps = allBalanceOps.sort(
       (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
-
-    // Group payables between consecutive transfers
-    // Each transfer sweeps the available balance; its fee should be split among
-    // payable credits that appeared since the last transfer.
-    const transferFeeByChargeId: Record<string, number> = {};
     let pendingPayableChargeIds: { chargeId: string; amount: number }[] = [];
 
     for (const op of sortedOps) {
@@ -98,7 +89,6 @@ Deno.serve(async (req) => {
         });
       } else if (op.type === "transfer" && op.movement_object?.fee) {
         const transferFee = op.movement_object.fee / 100;
-        // Distribute proportionally among pending payables
         const totalAmount = pendingPayableChargeIds.reduce((s, p) => s + p.amount, 0);
         if (totalAmount > 0 && pendingPayableChargeIds.length > 0) {
           for (const p of pendingPayableChargeIds) {
@@ -111,53 +101,45 @@ Deno.serve(async (req) => {
     }
     console.log(`Transfer fee entries: ${Object.keys(transferFeeByChargeId).length}`);
 
-    // 4. Build combined fee map by nuvemshop_order_id
-    const feeByNuvemshopId: Record<string, { fee: number; transferFee: number; chargeAmount: number }> = {};
+    // Build fee map by nuvemshop_order_id
+    const feeByNuvemshopId: Record<string, { processingFee: number; tedFee: number }> = {};
     for (const c of allCharges) {
       if (c.status !== "paid") continue;
       const code = String(c.order?.code || c.code || "");
       const processingFee = feeByChargeId[c.id] || 0;
-      const transferFee = transferFeeByChargeId[c.id] || 0;
-      if (code && (processingFee > 0 || transferFee > 0)) {
-        feeByNuvemshopId[code] = {
-          fee: processingFee,
-          transferFee,
-          chargeAmount: (c.amount || 0) / 100,
-        };
+      const tedFee = transferFeeByChargeId[c.id] || 0;
+      if (code && (processingFee > 0 || tedFee > 0)) {
+        feeByNuvemshopId[code] = { processingFee, tedFee };
       }
     }
     console.log(`Fee map entries (by nuvemshop_order_id): ${Object.keys(feeByNuvemshopId).length}`);
 
-    // 5. Fetch pedidos that need fee sync
-    // resync_all: re-process all pedidos (to add transfer fees to previously synced ones)
-    // default: only pedidos with taxa_pagarme = 0
+    // Fetch pedidos to update
     let query = supabase
       .from("pedidos")
-      .select("id, numero_pedido, nuvemshop_order_id, valor_bruto, frete, vendedor_id, origem, taxa_pagarme")
+      .select("id, numero_pedido, nuvemshop_order_id, valor_bruto, frete, vendedor_id, origem, taxa_pagarme, taxa_ted, ted_confirmado")
       .gt("valor_bruto", 0)
       .not("nuvemshop_order_id", "is", null);
-    
+
     if (!resyncAll) {
-      query = query.eq("taxa_pagarme", 0);
+      // Sync pedidos that either have no processing fee or unconfirmed TED
+      query = query.or("taxa_pagarme.eq.0,ted_confirmado.eq.false");
     }
     const { data: pedidos, error: pedidosError } = await query;
 
     if (pedidosError) throw new Error(`Error fetching pedidos: ${pedidosError.message}`);
     console.log(`Pedidos to check: ${pedidos?.length || 0}`);
 
-    // 6. Cache vendedor rates
+    // Cache vendedor rates
     const vendedorRates: Record<string, { site: number; whatsapp: number }> = {};
     const { data: vendedores } = await supabase.from("vendedores").select("id, taxa_comissao_site, taxa_comissao_whatsapp");
     if (vendedores) {
       for (const v of vendedores) {
-        vendedorRates[v.id] = {
-          site: v.taxa_comissao_site,
-          whatsapp: v.taxa_comissao_whatsapp,
-        };
+        vendedorRates[v.id] = { site: v.taxa_comissao_site, whatsapp: v.taxa_comissao_whatsapp };
       }
     }
 
-    // 7. Match and update
+    // Match and update
     let updated = 0;
     const samples: string[] = [];
 
@@ -166,32 +148,39 @@ Deno.serve(async (req) => {
       const match = feeByNuvemshopId[nuvemId];
       if (!match) continue;
 
-      // Total taxa = processing fee + transfer fee
-      const taxaPagarme = Math.round((match.fee + match.transferFee) * 100) / 100;
-      // Skip if fee hasn't changed (avoid unnecessary updates on resync)
-      if (resyncAll && Math.abs(taxaPagarme - Number(pedido.taxa_pagarme)) < 0.01) continue;
+      const taxaPagarme = Math.round(match.processingFee * 100) / 100;
+      const taxaTed = Math.round(match.tedFee * 100) / 100;
+      const tedConfirmado = taxaTed > 0;
+
+      // Skip if nothing changed
+      const currentPagarme = Number(pedido.taxa_pagarme);
+      const currentTed = Number(pedido.taxa_ted);
+      if (Math.abs(taxaPagarme - currentPagarme) < 0.01 && 
+          Math.abs(taxaTed - currentTed) < 0.01 && 
+          pedido.ted_confirmado === tedConfirmado) continue;
+
       const valorBruto = Number(pedido.valor_bruto);
       const frete = Number(pedido.frete);
-      const valorLiquido = valorBruto - frete - taxaPagarme;
+      const valorLiquido = valorBruto - frete - taxaPagarme - taxaTed;
 
       let comissao = 0;
       if (pedido.vendedor_id && vendedorRates[pedido.vendedor_id]) {
         const rates = vendedorRates[pedido.vendedor_id];
         const taxaComissao = pedido.origem === "whatsapp" ? rates.whatsapp : rates.site;
-        const base = valorBruto - taxaPagarme - frete;
+        const base = valorBruto - taxaPagarme - taxaTed - frete;
         comissao = base > 0 ? base * (taxaComissao / 100) : 0;
       }
 
       const { error } = await supabase
         .from("pedidos")
-        .update({ taxa_pagarme: taxaPagarme, valor_liquido: valorLiquido, comissao })
+        .update({ taxa_pagarme: taxaPagarme, taxa_ted: taxaTed, ted_confirmado: tedConfirmado, valor_liquido: valorLiquido, comissao })
         .eq("id", pedido.id);
 
       if (!error) {
         updated++;
         if (samples.length < 5) {
           samples.push(
-            `#${pedido.numero_pedido} (ns:${nuvemId}): proc R$${match.fee.toFixed(2)} + ted R$${match.transferFee.toFixed(2)} = R$${taxaPagarme.toFixed(2)}`
+            `#${pedido.numero_pedido} (ns:${nuvemId}): proc R$${taxaPagarme.toFixed(2)} + ted R$${taxaTed.toFixed(2)} (${tedConfirmado ? "real" : "est"}) = total R$${(taxaPagarme + taxaTed).toFixed(2)}`
           );
         }
       } else {
@@ -204,7 +193,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        message: `Taxas atualizadas: ${updated} pedidos (inclui taxa de transferência TED)`,
+        message: `Taxas atualizadas: ${updated} pedidos (processamento + TED separados)`,
         payables_fetched: allPayables.length,
         charges_fetched: allCharges.length,
         balance_ops_fetched: allBalanceOps.length,

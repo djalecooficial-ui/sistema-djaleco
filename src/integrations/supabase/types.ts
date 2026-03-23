@@ -187,6 +187,8 @@ export type Database = {
           status_pagamento: string
           superfrete_order_id: string | null
           taxa_pagarme: number
+          taxa_ted: number
+          ted_confirmado: boolean
           updated_at: string
           valor_bruto: number
           valor_liquido: number
@@ -221,6 +223,8 @@ export type Database = {
           status_pagamento?: string
           superfrete_order_id?: string | null
           taxa_pagarme?: number
+          taxa_ted?: number
+          ted_confirmado?: boolean
           updated_at?: string
           valor_bruto?: number
           valor_liquido?: number
@@ -255,6 +259,8 @@ export type Database = {
           status_pagamento?: string
           superfrete_order_id?: string | null
           taxa_pagarme?: number
+          taxa_ted?: number
+          ted_confirmado?: boolean
           updated_at?: string
           valor_bruto?: number
           valor_liquido?: number
