@@ -38,7 +38,7 @@ export default function PedidoDetalhe() {
     const v = vendedores?.find((vd) => vd.id === vendedorId);
     if (!v) return;
     const taxa = pedido?.origem === "whatsapp" ? ((v as any).taxa_comissao_whatsapp ?? v.taxa_comissao) : ((v as any).taxa_comissao_site ?? v.taxa_comissao);
-    const base = Number(pedido?.valor_bruto || 0) - Number(pedido?.taxa_pagarme || 0) - Number(pedido?.frete || 0);
+    const base = Number(pedido?.valor_bruto || 0) - Number(pedido?.taxa_pagarme || 0) - Number((pedido as any)?.taxa_ted || 0) - Number(pedido?.frete || 0);
     const comissao = base > 0 ? base * (taxa / 100) : 0;
     updatePedido.mutate(
       { id, vendedor_id: vendedorId, comissao },
