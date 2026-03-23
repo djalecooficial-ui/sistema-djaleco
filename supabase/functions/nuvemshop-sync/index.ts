@@ -169,8 +169,9 @@ Deno.serve(async (req) => {
       const valorBruto = parseFloat(order.total) || 0;
       const frete = parseFloat(order.shipping_cost_customer) || parseFloat(order.shipping_cost_owner) || 0;
       const taxaPagarme = parseFloat(order.gateway_fee) || 0;
-      const valorLiquido = valorBruto - frete - taxaPagarme;
-      const baseComissao = valorBruto - taxaPagarme - frete;
+      const taxaTed = 3.67; // Estimated TED fee for new orders
+      const valorLiquido = valorBruto - frete - taxaPagarme - taxaTed;
+      const baseComissao = valorBruto - taxaPagarme - taxaTed - frete;
       const comissao = baseComissao > 0 ? baseComissao * (taxaComissaoWilliam / 100) : 0;
       const rastreioCodigo = order.shipping_tracking_number || order.fulfillments?.[0]?.tracking_number || null;
 
@@ -193,6 +194,8 @@ Deno.serve(async (req) => {
         valor_bruto: valorBruto,
         frete,
         taxa_pagarme: taxaPagarme,
+        taxa_ted: taxaTed,
+        ted_confirmado: false,
         valor_liquido: valorLiquido,
         rastreio_codigo: rastreioCodigo,
         vendedor_id: WILLIAM_VENDEDOR_ID,

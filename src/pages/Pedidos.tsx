@@ -134,9 +134,14 @@ export default function Pedidos() {
       const valorBruto = Number(p.valor_bruto || 0);
       const frete = Number(p.frete || 0);
       const taxaPagarme = Number(p.taxa_pagarme || 0);
-      const valorLiquido = valorBruto - frete - taxaPagarme;
+      const taxaTed = Number((p as any).taxa_ted || 0);
+      const tedConfirmado = (p as any).ted_confirmado || false;
+      const totalTaxas = taxaPagarme + taxaTed;
+      const valorLiquido = valorBruto - frete - totalTaxas;
       const comissao = Number(p.comissao || 0);
       const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+      const tedLabel = tedConfirmado ? "TED" : "TED (estimado)";
 
       const texto = [
         `*Data: ${format(new Date(p.data_pedido), "dd/MM/yyyy")}*`,
@@ -155,7 +160,8 @@ export default function Pedidos() {
         `*Valores:*`,
         `Valor Bruto: ${fmt(valorBruto)}`,
         `Frete: -${fmt(frete)}`,
-        `Taxa Pagar.me: -${fmt(taxaPagarme)}`,
+        `Taxa Processamento: -${fmt(taxaPagarme)}`,
+        `Taxa ${tedLabel}: -${fmt(taxaTed)}`,
         `Valor Líquido: ${fmt(valorLiquido)}`,
         `Comissão: ${fmt(comissao)}`,
       ].join("\n");
