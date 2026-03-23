@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { Search, Plus, RefreshCw, Copy, Truck, Package } from "lucide-react";
@@ -26,6 +27,7 @@ function isPago(p: any) {
 }
 
 export default function Pedidos() {
+  const queryClient = useQueryClient();
   const { data: pedidos, isLoading } = usePedidos();
   const updatePedido = useUpdatePedido();
   const [search, setSearch] = useState("");
@@ -43,6 +45,7 @@ export default function Pedidos() {
       if (error) throw error;
       if (data?.success) {
         toast.success(`Rastreio verificado! ${data.updated} atualizados, ${data.checked} sem novidades, ${data.no_data} sem dados.`);
+        queryClient.invalidateQueries({ queryKey: ["pedidos"] });
       } else {
         toast.error(data?.error || "Erro ao consultar rastreios");
       }
@@ -60,6 +63,7 @@ export default function Pedidos() {
       if (error) throw error;
       if (data?.success) {
         toast.success(data.message || "Sync concluído!");
+        queryClient.invalidateQueries({ queryKey: ["pedidos"] });
       } else {
         toast.error(data?.error || "Erro no sync");
       }
@@ -77,6 +81,7 @@ export default function Pedidos() {
       if (error) throw error;
       if (data?.success) {
         toast.success(data.message || "Taxas atualizadas!");
+        queryClient.invalidateQueries({ queryKey: ["pedidos"] });
       } else {
         toast.error(data?.error || "Erro no sync de taxas");
       }
