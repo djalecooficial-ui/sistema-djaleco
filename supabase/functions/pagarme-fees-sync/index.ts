@@ -149,12 +149,14 @@ Deno.serve(async (req) => {
       if (!match) continue;
 
       const taxaPagarme = Math.round(match.processingFee * 100) / 100;
-      const taxaTed = Math.round(match.tedFee * 100) / 100;
-      const tedConfirmado = taxaTed > 0;
+      const realTedFee = Math.round(match.tedFee * 100) / 100;
+      const tedConfirmado = realTedFee > 0;
+      // If no real TED yet, keep the estimated value (default 3.67); otherwise use real
+      const currentTed = Number(pedido.taxa_ted);
+      const taxaTed = tedConfirmado ? realTedFee : (currentTed > 0 ? currentTed : 3.67);
 
       // Skip if nothing changed
       const currentPagarme = Number(pedido.taxa_pagarme);
-      const currentTed = Number(pedido.taxa_ted);
       if (Math.abs(taxaPagarme - currentPagarme) < 0.01 && 
           Math.abs(taxaTed - currentTed) < 0.01 && 
           pedido.ted_confirmado === tedConfirmado) continue;
