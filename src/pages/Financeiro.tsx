@@ -638,11 +638,15 @@ export default function Financeiro() {
                             <PopoverContent className="w-auto p-0" align="end">
                               <Calendar
                                 mode="single"
-                                selected={new Date()}
                                 onSelect={(d) => d && handlePagarComissao(p.id, d)}
                                 initialFocus
                                 className={cn("p-3 pointer-events-auto")}
                               />
+                              <div className="p-2 border-t">
+                                <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={() => handlePagarComissao(p.id, new Date())}>
+                                  Hoje
+                                </Button>
+                              </div>
                             </PopoverContent>
                           </Popover>
                         ) : (
