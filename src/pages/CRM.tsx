@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, MessageSquare, Phone, ArrowLeft } from "lucide-react";
+import { Plus, MessageSquare, Phone, ArrowLeft, Bot, BookOpen } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -86,6 +86,7 @@ type Contato = {
   avatar_url?: string | null;
   push_name?: string | null;
   is_customer?: boolean;
+  ai_enabled?: boolean | null;
 };
 
 function ContactCard({
@@ -155,6 +156,14 @@ function ContactCard({
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Phone className="h-3 w-3" />
         <span className="truncate">{c.telefone}</span>
+        {c.ai_enabled === false && (
+          <Badge
+            variant="outline"
+            className="text-[10px] h-4 px-1 ml-auto bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"
+          >
+            <Bot className="h-2.5 w-2.5 mr-0.5" /> aguarda humano
+          </Badge>
+        )}
       </div>
       {c.last_message_preview && (
         <p
@@ -361,7 +370,11 @@ export default function CRM() {
           <MessageSquare className="h-5 w-5 text-primary" />
           <h1 className="text-2xl font-bold">CRM / WhatsApp</h1>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => navigate("/crm/base-conhecimento")}>
+            <BookOpen className="h-4 w-4 mr-1" /> Base de Conhecimento
+          </Button>
+          <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-1" /> Novo Contato
@@ -410,7 +423,8 @@ export default function CRM() {
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
 
       <DndContext

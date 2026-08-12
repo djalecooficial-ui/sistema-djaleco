@@ -18,6 +18,7 @@ const Produtos = lazy(() => import("./pages/Produtos"));
 const Clientes = lazy(() => import("./pages/Clientes"));
 const CRM = lazy(() => import("./pages/CRM"));
 const CRMContato = lazy(() => import("./pages/CRMContato"));
+const CRMBaseConhecimento = lazy(() => import("./pages/CRMBaseConhecimento"));
 const ClienteDetalhe = lazy(() => import("./pages/ClienteDetalhe"));
 const Financeiro = lazy(() => import("./pages/Financeiro"));
 const Vendedores = lazy(() => import("./pages/Vendedores"));
@@ -44,6 +45,7 @@ function AppRoutes() {
         <Route path="/produtos" element={<ProtectedRoute><Produtos /></ProtectedRoute>} />
         <Route path="/clientes" element={<ProtectedRoute><Clientes /></ProtectedRoute>} />
         <Route path="/crm" element={<ProtectedRoute><CRM /></ProtectedRoute>} />
+        <Route path="/crm/base-conhecimento" element={<ProtectedRoute><CRMBaseConhecimento /></ProtectedRoute>} />
         <Route path="/crm/:id" element={<ProtectedRoute><CRMContato /></ProtectedRoute>} />
         <Route path="/clientes/:id" element={<ProtectedRoute><ClienteDetalhe /></ProtectedRoute>} />
         <Route path="/financeiro" element={<ProtectedRoute><Financeiro /></ProtectedRoute>} />

@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { PedidoQuickViewDialog } from "@/components/crm/PedidoQuickViewDialog";
 import { useContactCustomerInfo } from "@/hooks/useContactCustomerInfo";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -55,6 +56,7 @@ import {
   MoreVertical,
   UserCheck,
   UserPlus,
+  Bot,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -145,7 +147,7 @@ export default function CRMContato() {
 
   const updateContact = useMutation({
     mutationFn: async (
-      patch: Partial<{ nome: string; status: string; notas: string }>,
+      patch: Partial<{ nome: string; status: string; notas: string; ai_enabled: boolean }>,
     ) => {
       const { error } = await supabase
         .from("crm_contacts")
@@ -828,7 +830,7 @@ export default function CRMContato() {
               <p className="text-xs text-muted-foreground">{contato.telefone}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <Badge
               variant="outline"
               className={
@@ -851,6 +853,25 @@ export default function CRMContato() {
             <Badge variant="outline">
               {STATUS_LABEL[contato.status ?? "novo"] ?? contato.status}
             </Badge>
+            <div className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5">
+              <Bot className={`h-3.5 w-3.5 ${contato.ai_enabled ? "text-primary" : "text-muted-foreground"}`} />
+              <label htmlFor="ai-toggle" className="text-xs font-medium cursor-pointer select-none">
+                Respostas por IA
+              </label>
+              <Switch
+                id="ai-toggle"
+                checked={contato.ai_enabled ?? true}
+                onCheckedChange={(v) =>
+                  updateContact.mutate(
+                    { ai_enabled: v },
+                    {
+                      onSuccess: () =>
+                        toast.success(v ? "IA reativada para este contato" : "IA desativada — você assumiu a conversa"),
+                    },
+                  )
+                }
+              />
+            </div>
           </div>
         </header>
 
@@ -995,13 +1016,28 @@ export default function CRMContato() {
                         {textBody}
                       </p>
                     )}
-                    <p
-                      className={`text-[10px] mt-1 ${
-                        enviada ? "text-white/70" : "text-muted-foreground"
-                      } text-right`}
+                    <div
+                      className={`flex items-center gap-1.5 mt-1 ${
+                        enviada ? "justify-end" : "justify-between"
+                      }`}
                     >
-                      {format(new Date(m.created_at), "dd/MM HH:mm", { locale: ptBR })}
-                    </p>
+                      {m.is_ai_generated && (
+                        <span
+                          className={`inline-flex items-center gap-0.5 text-[10px] ${
+                            enviada ? "text-white/70" : "text-muted-foreground"
+                          }`}
+                        >
+                          <Bot className="h-2.5 w-2.5" /> IA
+                        </span>
+                      )}
+                      <p
+                        className={`text-[10px] ${
+                          enviada ? "text-white/70" : "text-muted-foreground"
+                        }`}
+                      >
+                        {format(new Date(m.created_at), "dd/MM HH:mm", { locale: ptBR })}
+                      </p>
+                    </div>
                   </div>
                   {!enviada && (
                     <div className="self-center ml-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">

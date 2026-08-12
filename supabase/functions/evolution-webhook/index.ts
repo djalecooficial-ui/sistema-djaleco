@@ -259,11 +259,12 @@ serve(async (req) => {
       payload.caption = mediaInfo.caption;
     }
 
-    const { error: insertError } = evolutionMessageId
+    const { data: inserted, error: insertError } = evolutionMessageId
       ? await supabase
           .from("crm_messages")
           .upsert(payload, { onConflict: "evolution_message_id", ignoreDuplicates: true })
-      : await supabase.from("crm_messages").insert(payload);
+          .select("id")
+      : await supabase.from("crm_messages").insert(payload).select("id");
 
     if (insertError) {
       console.error("[webhook] insert error:", insertError);
@@ -273,6 +274,21 @@ serve(async (req) => {
       .from("crm_contacts")
       .update({ ultimo_contato: new Date().toISOString() })
       .eq("id", contato!.id);
+
+    // Dispara a resposta automática por IA sem bloquear o retorno do webhook.
+    // Só quando a mensagem é realmente nova (não duplicada) e veio do cliente.
+    // Usa EdgeRuntime.waitUntil para garantir que a chamada continue rodando
+    // mesmo depois da resposta ao webhook já ter sido enviada.
+    const isNewMessage = !insertError && Array.isArray(inserted) && inserted.length > 0;
+    if (isNewMessage && direcao === "recebida") {
+      const aiTask = supabase.functions
+        .invoke("crm-ai-respond", { body: { contact_id: contato!.id } })
+        .catch((e) => console.error("[webhook] crm-ai-respond erro:", e));
+      // deno-lint-ignore no-explicit-any
+      const rt = (globalThis as any).EdgeRuntime;
+      if (rt?.waitUntil) rt.waitUntil(aiTask);
+      else await aiTask;
+    }
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200,

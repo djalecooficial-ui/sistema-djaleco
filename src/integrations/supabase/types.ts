@@ -118,6 +118,7 @@ export type Database = {
       }
       crm_contacts: {
         Row: {
+          ai_enabled: boolean
           avatar_url: string | null
           created_at: string | null
           direcao: string | null
@@ -136,6 +137,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          ai_enabled?: boolean
           avatar_url?: string | null
           created_at?: string | null
           direcao?: string | null
@@ -154,6 +156,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          ai_enabled?: boolean
           avatar_url?: string | null
           created_at?: string | null
           direcao?: string | null
@@ -173,6 +176,33 @@ export type Database = {
         }
         Relationships: []
       }
+      crm_knowledge_base: {
+        Row: {
+          categoria: string | null
+          conteudo: string
+          created_at: string | null
+          id: string
+          titulo: string
+          updated_at: string | null
+        }
+        Insert: {
+          categoria?: string | null
+          conteudo: string
+          created_at?: string | null
+          id?: string
+          titulo: string
+          updated_at?: string | null
+        }
+        Update: {
+          categoria?: string | null
+          conteudo?: string
+          created_at?: string | null
+          id?: string
+          titulo?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       crm_messages: {
         Row: {
           caption: string | null
@@ -183,6 +213,7 @@ export type Database = {
           direcao: string
           evolution_message_id: string | null
           id: string
+          is_ai_generated: boolean
           media_filename: string | null
           media_mime: string | null
           media_type: string | null
@@ -198,6 +229,7 @@ export type Database = {
           direcao?: string
           evolution_message_id?: string | null
           id?: string
+          is_ai_generated?: boolean
           media_filename?: string | null
           media_mime?: string | null
           media_type?: string | null
@@ -213,6 +245,7 @@ export type Database = {
           direcao?: string
           evolution_message_id?: string | null
           id?: string
+          is_ai_generated?: boolean
           media_filename?: string | null
           media_mime?: string | null
           media_type?: string | null
