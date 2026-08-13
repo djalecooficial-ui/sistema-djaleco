@@ -375,6 +375,7 @@ export type Database = {
           forma_pagamento: string | null
           frete: number
           id: string
+          lembrete_pagamento_enviado_at: string | null
           numero_pedido: string
           nuvemshop_order_id: number | null
           observacoes_pedido: string | null
@@ -411,6 +412,7 @@ export type Database = {
           forma_pagamento?: string | null
           frete?: number
           id?: string
+          lembrete_pagamento_enviado_at?: string | null
           numero_pedido: string
           nuvemshop_order_id?: number | null
           observacoes_pedido?: string | null
@@ -447,6 +449,7 @@ export type Database = {
           forma_pagamento?: string | null
           frete?: number
           id?: string
+          lembrete_pagamento_enviado_at?: string | null
           numero_pedido?: string
           nuvemshop_order_id?: number | null
           observacoes_pedido?: string | null
