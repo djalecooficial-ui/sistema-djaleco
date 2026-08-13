@@ -147,6 +147,12 @@ export default function CRMContato() {
     setNameDraft(contato?.nome ?? "");
   }, [contato?.id]);
 
+  // Toda sugestão nova vem com todas as mensagens marcadas por padrão
+  useEffect(() => {
+    const qtd = Array.isArray(contato?.ai_suggestion) ? (contato!.ai_suggestion as string[]).length : 0;
+    setSuggestionSelected(Array(qtd).fill(true));
+  }, [contato?.ai_suggestion_at]);
+
   const updateContact = useMutation({
     mutationFn: async (
       patch: Partial<{ nome: string; status: string; notas: string; ai_enabled: boolean }>,
@@ -234,7 +240,17 @@ export default function CRMContato() {
           setMessages((prev) => {
             const isDuplicate = prev.some((m) => m.id === payload.new.id);
             if (isDuplicate) return prev;
-            return [...prev, payload.new as any];
+            // Remove qualquer bolha otimista (id temp-*) que corresponda a essa
+            // mensagem real que acabou de chegar, pra não duplicar na tela.
+            const semOtimista = prev.filter(
+              (m) =>
+                !(
+                  String(m.id).startsWith("temp-") &&
+                  m.direcao === (payload.new as any).direcao &&
+                  m.conteudo === (payload.new as any).conteudo
+                ),
+            );
+            return [...semOtimista, payload.new as any];
           });
         },
       )
@@ -296,6 +312,8 @@ export default function CRMContato() {
             })
         : await supabase.from("crm_messages").insert(insertPayload);
       if (insertError) throw insertError;
+      // Fallback caso o realtime demore: some a bolha otimista já aqui.
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
     } catch (e: any) {
       toast.error(e.message ?? "Erro ao enviar mensagem");
     } finally {
@@ -308,6 +326,7 @@ export default function CRMContato() {
   const [approvingSuggestion, setApprovingSuggestion] = useState(false);
   const [regeneratingSuggestion, setRegeneratingSuggestion] = useState(false);
   const [suggestionFeedback, setSuggestionFeedback] = useState("");
+  const [suggestionSelected, setSuggestionSelected] = useState<boolean[]>([]);
   const [saveFeedbackAsRule, setSaveFeedbackAsRule] = useState(false);
 
   const pickAudioMime = () => {
@@ -1208,9 +1227,25 @@ export default function CRMContato() {
             </div>
             <div className="space-y-1.5">
               {(contato.ai_suggestion as string[]).map((m, i) => (
-                <p key={i} className="text-sm bg-background rounded-md px-2.5 py-1.5 border">
-                  {m}
-                </p>
+                <label
+                  key={i}
+                  className="flex items-start gap-2 text-sm bg-background rounded-md px-2.5 py-1.5 border cursor-pointer"
+                >
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={suggestionSelected[i] ?? true}
+                    onCheckedChange={(v) =>
+                      setSuggestionSelected((prev) => {
+                        const next = [...prev];
+                        next[i] = v === true;
+                        return next;
+                      })
+                    }
+                  />
+                  <span className={suggestionSelected[i] === false ? "line-through text-muted-foreground" : ""}>
+                    {m}
+                  </span>
+                </label>
               ))}
             </div>
 
@@ -1249,14 +1284,25 @@ export default function CRMContato() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => handleEditSuggestion(contato.ai_suggestion as string[])}
+                onClick={() =>
+                  handleEditSuggestion(
+                    (contato.ai_suggestion as string[]).filter((_, i) => suggestionSelected[i] ?? true),
+                  )
+                }
               >
                 Editar
               </Button>
               <Button
                 size="sm"
-                onClick={() => handleApproveAndSend(contato.ai_suggestion as string[])}
-                disabled={approvingSuggestion}
+                onClick={() =>
+                  handleApproveAndSend(
+                    (contato.ai_suggestion as string[]).filter((_, i) => suggestionSelected[i] ?? true),
+                  )
+                }
+                disabled={
+                  approvingSuggestion ||
+                  (contato.ai_suggestion as string[]).every((_, i) => suggestionSelected[i] === false)
+                }
               >
                 {approvingSuggestion ? "Enviando..." : "Aprovar e Enviar"}
               </Button>
