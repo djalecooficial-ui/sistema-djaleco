@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, MessageSquare, Phone, ArrowLeft, Bot, BookOpen } from "lucide-react";
+import { Plus, MessageSquare, Phone, ArrowLeft, Bot, BookOpen, Sparkles } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -87,6 +87,7 @@ type Contato = {
   push_name?: string | null;
   is_customer?: boolean;
   ai_enabled?: boolean | null;
+  ai_suggestion?: unknown;
 };
 
 function ContactCard({
@@ -156,14 +157,24 @@ function ContactCard({
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Phone className="h-3 w-3" />
         <span className="truncate">{c.telefone}</span>
-        {c.ai_enabled === false && (
-          <Badge
-            variant="outline"
-            className="text-[10px] h-4 px-1 ml-auto bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"
-          >
-            <Bot className="h-2.5 w-2.5 mr-0.5" /> aguarda humano
-          </Badge>
-        )}
+        <div className="ml-auto flex items-center gap-1">
+          {Array.isArray(c.ai_suggestion) && (c.ai_suggestion as unknown[]).length > 0 && (
+            <Badge
+              variant="outline"
+              className="text-[10px] h-4 px-1 bg-primary/10 text-primary border-primary/30"
+            >
+              <Sparkles className="h-2.5 w-2.5 mr-0.5" /> sugestão pronta
+            </Badge>
+          )}
+          {c.ai_enabled === false && (
+            <Badge
+              variant="outline"
+              className="text-[10px] h-4 px-1 bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"
+            >
+              <Bot className="h-2.5 w-2.5 mr-0.5" /> aguarda humano
+            </Badge>
+          )}
+        </div>
       </div>
       {c.last_message_preview && (
         <p

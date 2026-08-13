@@ -13,28 +13,6 @@ function messageToText(m: any): string {
   return m.conteudo || "";
 }
 
-async function sendWhatsAppText(telefone: string, mensagem: string) {
-  const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
-  const instance = Deno.env.get("EVOLUTION_CRM_INSTANCE");
-  const apiKey = Deno.env.get("EVOLUTION_CRM_API_KEY");
-  if (!evolutionUrl || !instance || !apiKey) {
-    throw new Error("Variáveis de ambiente da Evolution não configuradas");
-  }
-  const number = String(telefone).replace(/\D/g, "");
-  const url = `${evolutionUrl.replace(/\/$/, "")}/message/sendText/${instance}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", apikey: apiKey },
-    body: JSON.stringify({ number, text: mensagem }),
-  });
-  const result = await response.json();
-  if (!response.ok) {
-    throw new Error(`Evolution sendText falhou: ${response.status} ${JSON.stringify(result)}`);
-  }
-  const evolutionMessageId = result?.key?.id || result?.messageId || result?.id || null;
-  return evolutionMessageId as string | null;
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -100,15 +78,19 @@ Deno.serve(async (req) => {
       .map((e) => `## ${e.titulo}${e.categoria ? ` (${e.categoria})` : ""}\n${e.conteudo}`)
       .join("\n\n");
 
-    const systemPrompt = `Você é a atendente virtual da D.Jaleco, uma loja de jalecos e scrubs profissionais, respondendo pelo WhatsApp.
+    const systemPrompt = `Você é Sofia, assistente virtual da Djaleco, atendendo clientes pelo WhatsApp.
+
+Seu papel: atender de forma acolhedora, clara e profissional — tirar dúvidas, apresentar produtos e ajudar o cliente a avançar na compra. Responda com objetividade, tom amigável e linguagem simples.
 
 Regras obrigatórias:
-1. Responda SOMENTE com base nas informações da "Base de conhecimento" abaixo. Nunca invente prazos, preços, políticas ou promessas que não estejam documentados.
-2. Seja breve, cordial e direta, como uma conversa real de WhatsApp (poucas linhas, sem formalidade excessiva).
-3. Se a pergunta for uma reclamação, envolver um pedido específico (rastreio, status de pagamento, problema com produto recebido) ou não estiver coberta pela base de conhecimento, você DEVE escalar para um atendente humano em vez de responder.
+1. Responda SOMENTE com base na "Base de conhecimento" abaixo. Nunca invente preços, prazos, telefones ou políticas que não estejam documentados ali.
+2. Não use emojis nem caracteres especiais — comunicação limpa.
+3. Respostas curtas e diretas, mas completas.
+4. Se a mensagem do cliente for uma reclamação, envolver um pedido específico (rastreio, status de pagamento, problema com produto recebido) ou não estiver coberta pela base de conhecimento, você DEVE escalar para atendimento humano em vez de responder.
 
-Responda SEMPRE em JSON puro, sem markdown, no formato exato:
-{"action": "reply", "message": "texto da resposta"}
+Formato da resposta: divida sua resposta em mensagens curtas, como uma pessoa digitando naturalmente no WhatsApp (entre 1 e 5 mensagens, nunca um texto único e longo). Responda SEMPRE em JSON puro, sem markdown, em um dos dois formatos exatos:
+
+{"action": "reply", "messages": ["primeira mensagem", "segunda mensagem"]}
 ou
 {"action": "escalate", "reason": "motivo curto"}
 
@@ -144,7 +126,7 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
     const ai = await aiResp.json();
     const raw = (ai?.choices?.[0]?.message?.content || "").trim();
 
-    let decision: { action: string; message?: string; reason?: string };
+    let decision: { action: string; messages?: string[]; reason?: string };
     try {
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       decision = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
@@ -159,6 +141,8 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
         .update({
           ai_enabled: false,
           status: contato.status === "resolvido" ? contato.status : "aguardando",
+          ai_suggestion: null,
+          ai_suggestion_at: new Date().toISOString(),
         })
         .eq("id", contact_id);
 
@@ -168,32 +152,22 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
       );
     }
 
-    const mensagem = (decision.message || "").trim();
-    if (!mensagem) {
-      return new Response(JSON.stringify({ error: "IA não retornou mensagem" }), {
+    const mensagens = (decision.messages ?? []).map((m) => (m || "").trim()).filter(Boolean);
+    if (mensagens.length === 0) {
+      return new Response(JSON.stringify({ error: "IA não retornou mensagens" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const evolutionMessageId = await sendWhatsAppText(contato.telefone, mensagem);
+    // Modo sugestão: guarda a proposta no contato para revisão humana.
+    // Nada é enviado ao WhatsApp automaticamente.
+    await supabase
+      .from("crm_contacts")
+      .update({ ai_suggestion: mensagens, ai_suggestion_at: new Date().toISOString() })
+      .eq("id", contact_id);
 
-    const payload: Record<string, unknown> = {
-      contact_id,
-      conteudo: mensagem,
-      direcao: "enviada",
-      is_ai_generated: true,
-    };
-    if (evolutionMessageId) payload.evolution_message_id = evolutionMessageId;
-
-    const { error: insertError } = evolutionMessageId
-      ? await supabase
-          .from("crm_messages")
-          .upsert(payload, { onConflict: "evolution_message_id", ignoreDuplicates: true })
-      : await supabase.from("crm_messages").insert(payload);
-    if (insertError) console.error("[crm-ai-respond] insert error:", insertError);
-
-    return new Response(JSON.stringify({ action: "reply", message: mensagem }), {
+    return new Response(JSON.stringify({ action: "reply", messages: mensagens }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

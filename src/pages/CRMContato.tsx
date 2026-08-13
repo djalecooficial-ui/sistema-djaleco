@@ -57,6 +57,7 @@ import {
   UserCheck,
   UserPlus,
   Bot,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -302,6 +303,7 @@ export default function CRMContato() {
   };
 
   const [importing, setImporting] = useState(false);
+  const [generatingSuggestion, setGeneratingSuggestion] = useState(false);
 
   const pickAudioMime = () => {
     const candidates = [
@@ -522,6 +524,45 @@ export default function CRMContato() {
     } finally {
       setImporting(false);
     }
+  };
+
+  const handleGenerateSuggestion = async () => {
+    if (!contactId || generatingSuggestion) return;
+    setGeneratingSuggestion(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("crm-ai-respond", {
+        body: { contact_id: contactId },
+      });
+      if (error) throw error;
+      const action = (data as any)?.action;
+      if (action === "escalate") {
+        toast.info("A IA avaliou que essa conversa precisa de um atendente humano");
+      } else if (action === "reply") {
+        toast.success("Sugestão pronta");
+      }
+      qc.invalidateQueries({ queryKey: ["crm_contact", contactId] });
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao gerar sugestão");
+    } finally {
+      setGeneratingSuggestion(false);
+    }
+  };
+
+  const handleUseSuggestion = (mensagens: string[]) => {
+    setDraft(mensagens.join("\n\n"));
+    supabase
+      .from("crm_contacts")
+      .update({ ai_suggestion: null })
+      .eq("id", contactId!)
+      .then(() => qc.invalidateQueries({ queryKey: ["crm_contact", contactId] }));
+  };
+
+  const handleDiscardSuggestion = () => {
+    supabase
+      .from("crm_contacts")
+      .update({ ai_suggestion: null })
+      .eq("id", contactId!)
+      .then(() => qc.invalidateQueries({ queryKey: ["crm_contact", contactId] }));
   };
 
   const handleRefreshProfile = async () => {
@@ -850,6 +891,15 @@ export default function CRMContato() {
               <Download className="h-3.5 w-3.5 mr-1.5" />
               {importing ? "Importando..." : "Importar histórico"}
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleGenerateSuggestion}
+              disabled={generatingSuggestion}
+            >
+              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+              {generatingSuggestion ? "Gerando..." : "Gerar sugestão agora"}
+            </Button>
             <Badge variant="outline">
               {STATUS_LABEL[contato.status ?? "novo"] ?? contato.status}
             </Badge>
@@ -1064,6 +1114,32 @@ export default function CRMContato() {
             })
           )}
         </div>
+
+        {Array.isArray(contato.ai_suggestion) && contato.ai_suggestion.length > 0 && (
+          <div className="mx-3 md:mx-4 mb-2 rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
+              <Sparkles className="h-3.5 w-3.5" /> Sugestão da IA
+            </div>
+            <div className="space-y-1.5">
+              {(contato.ai_suggestion as string[]).map((m, i) => (
+                <p key={i} className="text-sm bg-background rounded-md px-2.5 py-1.5 border">
+                  {m}
+                </p>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={handleDiscardSuggestion}>
+                Descartar
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => handleUseSuggestion(contato.ai_suggestion as string[])}
+              >
+                Usar
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="border-t bg-card p-3 md:p-4">
           {recording ? (

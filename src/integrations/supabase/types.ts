@@ -119,6 +119,8 @@ export type Database = {
       crm_contacts: {
         Row: {
           ai_enabled: boolean
+          ai_suggestion: Json | null
+          ai_suggestion_at: string | null
           avatar_url: string | null
           created_at: string | null
           direcao: string | null
@@ -138,6 +140,8 @@ export type Database = {
         }
         Insert: {
           ai_enabled?: boolean
+          ai_suggestion?: Json | null
+          ai_suggestion_at?: string | null
           avatar_url?: string | null
           created_at?: string | null
           direcao?: string | null
@@ -157,6 +161,8 @@ export type Database = {
         }
         Update: {
           ai_enabled?: boolean
+          ai_suggestion?: Json | null
+          ai_suggestion_at?: string | null
           avatar_url?: string | null
           created_at?: string | null
           direcao?: string | null
