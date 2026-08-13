@@ -911,6 +911,22 @@ export default function CRMContato() {
               <Badge variant="outline" className={ORIGEM_CLASS[origem] ?? ""}>
                 {ORIGEM_LABEL[origem] ?? origem}
               </Badge>
+              {Array.isArray((contato as any).tags) &&
+                (contato as any).tags.map((tag: string) => (
+                  <Badge
+                    key={tag}
+                    variant="outline"
+                    className={
+                      tag.startsWith("Pagamento Confirmado")
+                        ? "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
+                        : tag.startsWith("Pagamento Pendente")
+                        ? "bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/30"
+                        : ""
+                    }
+                  >
+                    {tag}
+                  </Badge>
+                ))}
             </div>
 
             {(contato as any).pedido_confirmado_at && (
@@ -1317,7 +1333,7 @@ export default function CRMContato() {
         {Array.isArray(contato.ai_suggestion) && contato.ai_suggestion.length > 0 && (
           <div className="mx-3 md:mx-4 mb-2 rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
             <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
-              <Sparkles className="h-3.5 w-3.5" /> Sugestão da IA
+              <Sparkles className="h-3.5 w-3.5" /> Sugestão pronta para enviar
             </div>
             <div className="space-y-1.5">
               {(contato.ai_suggestion as string[]).map((m, i) => (

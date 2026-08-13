@@ -21,21 +21,46 @@ function currency(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-async function enviarBoasVindasPagamento(
+async function findOrCreateContato(supabase: any, telefoneLimpo: string, nomeCliente: string) {
+  const { data: existente } = await supabase
+    .from("crm_contacts")
+    .select("id, tags")
+    .eq("telefone", telefoneLimpo)
+    .maybeSingle();
+  if (existente) return existente as { id: string; tags: string[] | null };
+
+  const { data: criado, error } = await supabase
+    .from("crm_contacts")
+    .insert({ nome: nomeCliente || telefoneLimpo, telefone: telefoneLimpo, origem: "site", status: "novo" })
+    .select("id, tags")
+    .single();
+  if (error) {
+    // Corrida: outro processo criou o contato entre o select e o insert.
+    const { data: retry } = await supabase
+      .from("crm_contacts")
+      .select("id, tags")
+      .eq("telefone", telefoneLimpo)
+      .maybeSingle();
+    return retry as { id: string; tags: string[] | null } | null;
+  }
+  return criado as { id: string; tags: string[] | null };
+}
+
+function mergeTags(atual: string[] | null | undefined, adicionar: string, removerPrefixo: string): string[] {
+  const semAntigas = (atual ?? []).filter((t) => !t.startsWith(removerPrefixo));
+  return Array.from(new Set([...semAntigas, adicionar]));
+}
+
+// Prepara a sugestão de mensagem de boas-vindas pós-pagamento e marca o
+// contato com uma tag — NÃO envia nada sozinho, precisa de aprovação humana
+// na tela da conversa (mesmo fluxo "Aprovar e Enviar" das sugestões da IA).
+async function prepararSugestaoPagamentoConfirmado(
   supabase: any,
   telefone: string,
   nomeCliente: string,
   numeroPedido: string,
   valor: number,
 ) {
-  const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
-  const instance = Deno.env.get("EVOLUTION_CRM_INSTANCE");
-  const apiKey = Deno.env.get("EVOLUTION_CRM_API_KEY");
-  if (!evolutionUrl || !instance || !apiKey) {
-    console.error("[pagamento] variáveis da Evolution não configuradas, pulando mensagem");
-    return;
-  }
-
   const telefoneLimpo = telefone.replace(/\D/g, "");
   const primeiroNome = (nomeCliente || "").trim().split(/\s+/)[0] || "";
 
@@ -46,76 +71,25 @@ async function enviarBoasVindasPagamento(
     "Qualquer dúvida, é só chamar por aqui.",
   ];
 
-  // Upsert atômico do contato (evita duplicar se o telefone já existe)
-  const { data: upserted } = await supabase
-    .from("crm_contacts")
-    .upsert(
-      {
-        nome: nomeCliente || telefoneLimpo,
-        telefone: telefoneLimpo,
-        origem: "site",
-        status: "novo",
-        pedido_confirmado_at: new Date().toISOString(),
-        pedido_numero: numeroPedido,
-        pedido_valor: valor,
-      },
-      { onConflict: "telefone", ignoreDuplicates: true },
-    )
-    .select("id")
-    .maybeSingle();
-
-  let contatoId: string | null = upserted?.id ?? null;
-  if (!contatoId) {
-    const { data: existente } = await supabase
-      .from("crm_contacts")
-      .select("id")
-      .eq("telefone", telefoneLimpo)
-      .maybeSingle();
-    contatoId = existente?.id ?? null;
-    if (contatoId) {
-      await supabase
-        .from("crm_contacts")
-        .update({
-          pedido_confirmado_at: new Date().toISOString(),
-          pedido_numero: numeroPedido,
-          pedido_valor: valor,
-        })
-        .eq("id", contatoId);
-    }
-  }
-  if (!contatoId) {
+  const contato = await findOrCreateContato(supabase, telefoneLimpo, nomeCliente);
+  if (!contato) {
     console.error("[pagamento] não foi possível criar/achar contato para", telefoneLimpo);
     return;
   }
 
-  const baseUrl = evolutionUrl.replace(/\/$/, "");
-  for (const texto of mensagens) {
-    try {
-      const resp = await fetch(`${baseUrl}/message/sendText/${instance}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: apiKey },
-        body: JSON.stringify({ number: telefoneLimpo, text: texto }),
-      });
-      const result = await resp.json();
-      const evolutionMessageId = result?.key?.id || result?.messageId || result?.id || null;
-      const payload: Record<string, unknown> = {
-        contact_id: contatoId,
-        conteudo: texto,
-        direcao: "enviada",
-      };
-      if (evolutionMessageId) payload.evolution_message_id = evolutionMessageId;
-      if (evolutionMessageId) {
-        await supabase
-          .from("crm_messages")
-          .upsert(payload, { onConflict: "evolution_message_id", ignoreDuplicates: true });
-      } else {
-        await supabase.from("crm_messages").insert(payload);
-      }
-    } catch (e) {
-      console.error("[pagamento] erro ao enviar mensagem", e);
-    }
-    await new Promise((r) => setTimeout(r, 1200 + Math.random() * 900));
-  }
+  const novasTags = mergeTags(contato.tags, `Pagamento Confirmado #${numeroPedido}`, `Pagamento Pendente #${numeroPedido}`);
+
+  await supabase
+    .from("crm_contacts")
+    .update({
+      tags: novasTags,
+      pedido_confirmado_at: new Date().toISOString(),
+      pedido_numero: numeroPedido,
+      pedido_valor: valor,
+      ai_suggestion: mensagens,
+      ai_suggestion_at: new Date().toISOString(),
+    })
+    .eq("id", contato.id);
 }
 
 Deno.serve(async (req) => {
@@ -277,7 +251,7 @@ Deno.serve(async (req) => {
     // pela primeira vez (evita reenviar em atualizações futuras do mesmo pedido).
     const statusAnterior = existing?.status_pagamento ?? null;
     if (statusPagamento === "recebido" && statusAnterior !== "recebido" && customerPhone) {
-      await enviarBoasVindasPagamento(supabase, customerPhone, customerName, pedidoData.numero_pedido, valorBruto);
+      await prepararSugestaoPagamentoConfirmado(supabase, customerPhone, customerName, pedidoData.numero_pedido, valorBruto);
     }
 
     // Sync items

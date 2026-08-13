@@ -91,6 +91,7 @@ type Contato = {
   pedido_confirmado_at?: string | null;
   pedido_numero?: string | null;
   pedido_valor?: number | null;
+  tags?: string[] | null;
 };
 
 function ContactCard({
@@ -194,6 +195,25 @@ function ContactCard({
           )}
         </div>
       </div>
+      {Array.isArray(c.tags) && c.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {c.tags.map((tag) => (
+            <Badge
+              key={tag}
+              variant="outline"
+              className={`text-[10px] h-4 px-1 ${
+                tag.startsWith("Pagamento Confirmado")
+                  ? "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30"
+                  : tag.startsWith("Pagamento Pendente")
+                  ? "bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/30"
+                  : "bg-muted text-muted-foreground border-border"
+              }`}
+            >
+              {tag}
+            </Badge>
+          ))}
+        </div>
+      )}
       {c.last_message_preview && (
         <p
           className={`text-xs line-clamp-2 leading-snug ${
