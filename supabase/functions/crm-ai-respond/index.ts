@@ -17,7 +17,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { contact_id } = await req.json();
+    const { contact_id, feedback } = await req.json();
     if (!contact_id) {
       return new Response(JSON.stringify({ error: "contact_id é obrigatório" }), {
         status: 400,
@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
 
     const { data: contato, error: contatoErr } = await supabase
       .from("crm_contacts")
-      .select("id, nome, telefone, ai_enabled, status")
+      .select("id, nome, telefone, ai_enabled, status, ai_suggestion")
       .eq("id", contact_id)
       .maybeSingle();
     if (contatoErr || !contato) {
@@ -84,9 +84,10 @@ Seu papel: atender de forma acolhedora, clara e profissional — tirar dúvidas,
 
 Regras obrigatórias:
 1. Responda SOMENTE com base na "Base de conhecimento" abaixo. Nunca invente preços, prazos, telefones ou políticas que não estejam documentados ali.
-2. Não use emojis nem caracteres especiais — comunicação limpa.
-3. Respostas curtas e diretas, mas completas.
-4. Se a mensagem do cliente for uma reclamação, envolver um pedido específico (rastreio, status de pagamento, problema com produto recebido) ou não estiver coberta pela base de conhecimento, você DEVE escalar para atendimento humano em vez de responder.
+2. Responda apenas o que foi perguntado. Não acrescente informações da base de conhecimento que não tenham relação direta com a pergunta do cliente, mesmo que estejam disponíveis — seja pontual, não despeje tudo que você sabe sobre o assunto.
+3. Não use emojis nem caracteres especiais — comunicação limpa.
+4. Respostas curtas e diretas, mas completas.
+5. Se a mensagem do cliente for uma reclamação, envolver um pedido específico (rastreio, status de pagamento, problema com produto recebido) ou não estiver coberta pela base de conhecimento, você DEVE escalar para atendimento humano em vez de responder.
 
 Formato da resposta: divida sua resposta em mensagens curtas, como uma pessoa digitando naturalmente no WhatsApp (entre 1 e 5 mensagens, nunca um texto único e longo). Responda SEMPRE em JSON puro, sem markdown, em um dos dois formatos exatos:
 
@@ -97,7 +98,16 @@ ou
 Base de conhecimento:
 ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
 
-    const userPrompt = `Conversa até agora (nome do cliente: ${contato.nome || contato.telefone}):\n${conversa}\n\nGere a próxima resposta da loja.`;
+    let userPrompt = `Conversa até agora (nome do cliente: ${contato.nome || contato.telefone}):\n${conversa}\n\nGere a próxima resposta da loja.`;
+
+    if (feedback && typeof feedback === "string" && feedback.trim()) {
+      const sugestaoAnterior = Array.isArray(contato.ai_suggestion)
+        ? (contato.ai_suggestion as string[]).join(" / ")
+        : null;
+      userPrompt += `\n\nVocê já tinha sugerido esta resposta${
+        sugestaoAnterior ? `: "${sugestaoAnterior}"` : ""
+      }, mas o atendente humano deu o seguinte feedback sobre ela: "${feedback.trim()}". Gere uma nova sugestão levando esse feedback em conta.`;
+    }
 
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",

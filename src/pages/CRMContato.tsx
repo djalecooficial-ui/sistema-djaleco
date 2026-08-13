@@ -26,6 +26,7 @@ import {
 import { PedidoQuickViewDialog } from "@/components/crm/PedidoQuickViewDialog";
 import { useContactCustomerInfo } from "@/hooks/useContactCustomerInfo";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -304,6 +305,10 @@ export default function CRMContato() {
 
   const [importing, setImporting] = useState(false);
   const [generatingSuggestion, setGeneratingSuggestion] = useState(false);
+  const [approvingSuggestion, setApprovingSuggestion] = useState(false);
+  const [regeneratingSuggestion, setRegeneratingSuggestion] = useState(false);
+  const [suggestionFeedback, setSuggestionFeedback] = useState("");
+  const [saveFeedbackAsRule, setSaveFeedbackAsRule] = useState(false);
 
   const pickAudioMime = () => {
     const candidates = [
@@ -548,7 +553,7 @@ export default function CRMContato() {
     }
   };
 
-  const handleUseSuggestion = (mensagens: string[]) => {
+  const handleEditSuggestion = (mensagens: string[]) => {
     setDraft(mensagens.join("\n\n"));
     supabase
       .from("crm_contacts")
@@ -563,6 +568,87 @@ export default function CRMContato() {
       .update({ ai_suggestion: null })
       .eq("id", contactId!)
       .then(() => qc.invalidateQueries({ queryKey: ["crm_contact", contactId] }));
+    setSuggestionFeedback("");
+    setSaveFeedbackAsRule(false);
+  };
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const handleApproveAndSend = async (mensagens: string[]) => {
+    if (!contato || approvingSuggestion) return;
+    setApprovingSuggestion(true);
+    try {
+      for (let i = 0; i < mensagens.length; i++) {
+        const texto = mensagens[i];
+        const { data: sendResp, error: fnError } = await supabase.functions.invoke(
+          "evolution-send-message",
+          { body: { telefone: contato.telefone, mensagem: texto, contact_id: contato.id } },
+        );
+        if (fnError) throw fnError;
+        const evolutionMessageId = (sendResp as any)?.evolution_message_id ?? null;
+        const insertPayload = {
+          contact_id: contato.id,
+          conteudo: texto,
+          direcao: "enviada",
+          is_ai_generated: true,
+          ...(evolutionMessageId ? { evolution_message_id: evolutionMessageId } : {}),
+        };
+        const { error: insertError } = evolutionMessageId
+          ? await supabase
+              .from("crm_messages")
+              .upsert(insertPayload, { onConflict: "evolution_message_id", ignoreDuplicates: true })
+          : await supabase.from("crm_messages").insert(insertPayload);
+        if (insertError) throw insertError;
+
+        if (i < mensagens.length - 1) {
+          await sleep(1200 + Math.random() * 900);
+        }
+      }
+      await supabase
+        .from("crm_contacts")
+        .update({ ai_suggestion: null })
+        .eq("id", contato.id);
+      qc.invalidateQueries({ queryKey: ["crm_contact", contactId] });
+      setSuggestionFeedback("");
+      setSaveFeedbackAsRule(false);
+      toast.success("Mensagens enviadas");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao enviar a sugestão");
+    } finally {
+      setApprovingSuggestion(false);
+    }
+  };
+
+  const handleRegenerateWithFeedback = async () => {
+    if (!contactId || regeneratingSuggestion || !suggestionFeedback.trim()) return;
+    setRegeneratingSuggestion(true);
+    try {
+      if (saveFeedbackAsRule) {
+        const { error: kbError } = await supabase.from("crm_knowledge_base").insert({
+          titulo: `Diretriz: ${suggestionFeedback.trim().slice(0, 60)}`,
+          categoria: "Diretrizes de resposta",
+          conteudo: suggestionFeedback.trim(),
+        });
+        if (kbError) throw kbError;
+      }
+      const { data, error } = await supabase.functions.invoke("crm-ai-respond", {
+        body: { contact_id: contactId, feedback: suggestionFeedback.trim() },
+      });
+      if (error) throw error;
+      const action = (data as any)?.action;
+      if (action === "escalate") {
+        toast.info("A IA avaliou que essa conversa precisa de um atendente humano");
+      } else {
+        toast.success("Sugestão regenerada");
+      }
+      setSuggestionFeedback("");
+      setSaveFeedbackAsRule(false);
+      qc.invalidateQueries({ queryKey: ["crm_contact", contactId] });
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao regenerar sugestão");
+    } finally {
+      setRegeneratingSuggestion(false);
+    }
   };
 
   const handleRefreshProfile = async () => {
@@ -1127,15 +1213,52 @@ export default function CRMContato() {
                 </p>
               ))}
             </div>
-            <div className="flex justify-end gap-2">
+
+            <div className="space-y-1.5 pt-1 border-t border-primary/20">
+              <Textarea
+                value={suggestionFeedback}
+                onChange={(e) => setSuggestionFeedback(e.target.value)}
+                placeholder="Algo errado? Diga o que corrigir (ex: não fale de bordado se não perguntarem)..."
+                rows={2}
+                className="text-xs bg-background"
+              />
+              <div className="flex items-center gap-1.5">
+                <Checkbox
+                  id="save-rule"
+                  checked={saveFeedbackAsRule}
+                  onCheckedChange={(v) => setSaveFeedbackAsRule(v === true)}
+                />
+                <label htmlFor="save-rule" className="text-xs text-muted-foreground cursor-pointer select-none">
+                  Salvar como regra permanente (vale para todas as conversas)
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 flex-wrap">
               <Button variant="ghost" size="sm" onClick={handleDiscardSuggestion}>
                 Descartar
               </Button>
               <Button
+                variant="outline"
                 size="sm"
-                onClick={() => handleUseSuggestion(contato.ai_suggestion as string[])}
+                onClick={handleRegenerateWithFeedback}
+                disabled={!suggestionFeedback.trim() || regeneratingSuggestion}
               >
-                Usar
+                {regeneratingSuggestion ? "Regenerando..." : "Regenerar com feedback"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleEditSuggestion(contato.ai_suggestion as string[])}
+              >
+                Editar
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => handleApproveAndSend(contato.ai_suggestion as string[])}
+                disabled={approvingSuggestion}
+              >
+                {approvingSuggestion ? "Enviando..." : "Aprovar e Enviar"}
               </Button>
             </div>
           </div>
