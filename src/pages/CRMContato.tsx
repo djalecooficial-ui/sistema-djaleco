@@ -28,6 +28,12 @@ import { useContactCustomerInfo } from "@/hooks/useContactCustomerInfo";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -59,6 +65,7 @@ import {
   UserPlus,
   Bot,
   Sparkles,
+  Paperclip,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -327,6 +334,22 @@ export default function CRMContato() {
   const [regeneratingSuggestion, setRegeneratingSuggestion] = useState(false);
   const [suggestionFeedback, setSuggestionFeedback] = useState("");
   const [suggestionSelected, setSuggestionSelected] = useState<boolean[]>([]);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [sendingAttachmentId, setSendingAttachmentId] = useState<string | null>(null);
+
+  const { data: attachments } = useQuery({
+    queryKey: ["crm_attachments"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_attachments")
+        .select("*")
+        .order("categoria", { ascending: true, nullsFirst: false })
+        .order("titulo", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: attachOpen,
+  });
   const [saveFeedbackAsRule, setSaveFeedbackAsRule] = useState(false);
 
   const pickAudioMime = () => {
@@ -667,6 +690,62 @@ export default function CRMContato() {
       toast.error(e.message ?? "Erro ao regenerar sugestão");
     } finally {
       setRegeneratingSuggestion(false);
+    }
+  };
+
+  const handleSendAttachment = async (anexo: {
+    id: string;
+    file_url: string;
+    file_name: string;
+    file_mime: string;
+    titulo: string;
+  }) => {
+    if (!contato || sendingAttachmentId) return;
+    setSendingAttachmentId(anexo.id);
+    try {
+      const { data: sendResp, error: fnError } = await supabase.functions.invoke(
+        "evolution-send-message",
+        {
+          body: {
+            telefone: contato.telefone,
+            contact_id: contato.id,
+            media_url: anexo.file_url,
+            media_mime: anexo.file_mime,
+            media_filename: anexo.file_name,
+          },
+        },
+      );
+      if (fnError) throw fnError;
+      const evolutionMessageId = (sendResp as any)?.evolution_message_id ?? null;
+      const mediaType = anexo.file_mime.startsWith("image/")
+        ? "image"
+        : anexo.file_mime.startsWith("video/")
+        ? "video"
+        : "document";
+
+      const insertPayload: any = {
+        contact_id: contato.id,
+        conteudo: "",
+        direcao: "enviada",
+        media_type: mediaType,
+        media_mime: anexo.file_mime,
+        media_url: anexo.file_url,
+        media_filename: anexo.file_name,
+        ...(evolutionMessageId ? { evolution_message_id: evolutionMessageId } : {}),
+      };
+      const { error: insertError } = evolutionMessageId
+        ? await supabase
+            .from("crm_messages")
+            .upsert(insertPayload, { onConflict: "evolution_message_id", ignoreDuplicates: true })
+        : await supabase.from("crm_messages").insert(insertPayload);
+      if (insertError) throw insertError;
+
+      toast.success("Anexo enviado");
+      setAttachOpen(false);
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao enviar anexo");
+    } finally {
+      setSendingAttachmentId(null);
     }
   };
 
@@ -1342,6 +1421,16 @@ export default function CRMContato() {
           ) : (
             <>
               <div className="flex items-end gap-2">
+                <Button
+                  onClick={() => setAttachOpen(true)}
+                  disabled={sendingAudio}
+                  variant="secondary"
+                  size="icon"
+                  className="shrink-0 h-10 w-10"
+                  aria-label="Anexar arquivo"
+                >
+                  <Paperclip className="h-5 w-5" />
+                </Button>
                 <Textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
@@ -1391,6 +1480,49 @@ export default function CRMContato() {
         open={!!pedidoModalId}
         onOpenChange={(v) => !v && setPedidoModalId(null)}
       />
+
+      <Dialog open={attachOpen} onOpenChange={setAttachOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Enviar anexo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+            {!attachments || attachments.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                Nenhum anexo cadastrado.{" "}
+                <Link to="/crm/anexos" className="text-primary underline">
+                  Adicionar na Biblioteca de Anexos
+                </Link>
+              </p>
+            ) : (
+              attachments.map((a: any) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => handleSendAttachment(a)}
+                  disabled={!!sendingAttachmentId}
+                  className="w-full flex items-center gap-3 rounded-md border p-2.5 text-left hover:bg-muted/50 transition-colors disabled:opacity-60"
+                >
+                  {a.file_mime?.startsWith("image/") ? (
+                    <img src={a.file_url} alt={a.titulo} className="h-10 w-10 rounded-md object-cover shrink-0" />
+                  ) : (
+                    <div className="h-10 w-10 rounded-md bg-muted flex items-center justify-center shrink-0">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{a.titulo}</p>
+                    {a.categoria && <p className="text-xs text-muted-foreground truncate">{a.categoria}</p>}
+                  </div>
+                  {sendingAttachmentId === a.id && (
+                    <span className="text-xs text-muted-foreground shrink-0">Enviando...</span>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={!!deleteMsgId}

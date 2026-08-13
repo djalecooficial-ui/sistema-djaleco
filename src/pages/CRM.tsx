@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, MessageSquare, Phone, ArrowLeft, Bot, BookOpen, Sparkles } from "lucide-react";
+import { Plus, MessageSquare, Phone, ArrowLeft, Bot, BookOpen, Sparkles, Paperclip } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -384,6 +384,9 @@ export default function CRM() {
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => navigate("/crm/base-conhecimento")}>
             <BookOpen className="h-4 w-4 mr-1" /> Base de Conhecimento
+          </Button>
+          <Button variant="outline" onClick={() => navigate("/crm/anexos")}>
+            <Paperclip className="h-4 w-4 mr-1" /> Anexos
           </Button>
           <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>

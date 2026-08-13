@@ -6,11 +6,20 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { telefone, mensagem, contact_id, audio_base64 } = await req.json();
+    const {
+      telefone,
+      mensagem,
+      contact_id,
+      audio_base64,
+      media_url,
+      media_mime,
+      media_filename,
+      media_caption,
+    } = await req.json();
 
-    if (!telefone || (!mensagem && !audio_base64)) {
+    if (!telefone || (!mensagem && !audio_base64 && !media_url)) {
       return new Response(
-        JSON.stringify({ error: "telefone e mensagem/audio são obrigatórios" }),
+        JSON.stringify({ error: "telefone e mensagem/audio/media_url são obrigatórios" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -34,6 +43,21 @@ Deno.serve(async (req) => {
     if (audio_base64) {
       url = `${baseUrl}/message/sendWhatsAppAudio/${instance}`;
       body = { number, audio: audio_base64, encoding: true };
+    } else if (media_url) {
+      const mime = media_mime || "";
+      const mediatype = mime.startsWith("image/")
+        ? "image"
+        : mime.startsWith("video/")
+        ? "video"
+        : "document";
+      url = `${baseUrl}/message/sendMedia/${instance}`;
+      body = {
+        number,
+        mediatype,
+        media: media_url,
+        fileName: media_filename || undefined,
+        caption: media_caption || mensagem || undefined,
+      };
     } else {
       url = `${baseUrl}/message/sendText/${instance}`;
       body = { number, text: mensagem };

@@ -182,6 +182,42 @@ export type Database = {
         }
         Relationships: []
       }
+      crm_attachments: {
+        Row: {
+          categoria: string | null
+          created_at: string | null
+          file_mime: string
+          file_name: string
+          file_size: number | null
+          file_url: string
+          id: string
+          titulo: string
+          updated_at: string | null
+        }
+        Insert: {
+          categoria?: string | null
+          created_at?: string | null
+          file_mime: string
+          file_name: string
+          file_size?: number | null
+          file_url: string
+          id?: string
+          titulo: string
+          updated_at?: string | null
+        }
+        Update: {
+          categoria?: string | null
+          created_at?: string | null
+          file_mime?: string
+          file_name?: string
+          file_size?: number | null
+          file_url?: string
+          id?: string
+          titulo?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       crm_knowledge_base: {
         Row: {
           categoria: string | null
