@@ -66,6 +66,7 @@ import {
   Bot,
   Sparkles,
   Paperclip,
+  Banknote,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -911,6 +912,20 @@ export default function CRMContato() {
                 {ORIGEM_LABEL[origem] ?? origem}
               </Badge>
             </div>
+
+            {(contato as any).pedido_confirmado_at && (
+              <div className="w-full rounded-md border border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 text-left text-xs p-2.5 space-y-0.5">
+                <p className="font-medium inline-flex items-center gap-1.5 text-blue-900 dark:text-blue-300">
+                  <Banknote className="h-3.5 w-3.5" />
+                  Pagamento confirmado
+                </p>
+                <p className="text-muted-foreground">
+                  Pedido #{(contato as any).pedido_numero}
+                  {typeof (contato as any).pedido_valor === "number" &&
+                    ` · ${currency(Number((contato as any).pedido_valor))}`}
+                </p>
+              </div>
+            )}
 
             <Button
               variant="ghost"

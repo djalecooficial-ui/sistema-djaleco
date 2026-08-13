@@ -17,6 +17,107 @@ function classifyTracking(raw: string | null | undefined): { rastreio_codigo: st
   return { rastreio_codigo: null, superfrete_order_id: null };
 }
 
+function currency(v: number) {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+async function enviarBoasVindasPagamento(
+  supabase: any,
+  telefone: string,
+  nomeCliente: string,
+  numeroPedido: string,
+  valor: number,
+) {
+  const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
+  const instance = Deno.env.get("EVOLUTION_CRM_INSTANCE");
+  const apiKey = Deno.env.get("EVOLUTION_CRM_API_KEY");
+  if (!evolutionUrl || !instance || !apiKey) {
+    console.error("[pagamento] variáveis da Evolution não configuradas, pulando mensagem");
+    return;
+  }
+
+  const telefoneLimpo = telefone.replace(/\D/g, "");
+  const primeiroNome = (nomeCliente || "").trim().split(/\s+/)[0] || "";
+
+  const mensagens = [
+    `Oi${primeiroNome ? " " + primeiroNome : ""}! Recebemos a confirmação do pagamento do seu pedido #${numeroPedido}, no valor de ${currency(valor)}.`,
+    "Já vamos começar a produção agora.",
+    "O prazo é de 20 dias corridos de produção, mais o prazo de entrega dos Correios ou transportadora, que varia conforme o seu CEP.",
+    "Qualquer dúvida, é só chamar por aqui.",
+  ];
+
+  // Upsert atômico do contato (evita duplicar se o telefone já existe)
+  const { data: upserted } = await supabase
+    .from("crm_contacts")
+    .upsert(
+      {
+        nome: nomeCliente || telefoneLimpo,
+        telefone: telefoneLimpo,
+        origem: "site",
+        status: "novo",
+        pedido_confirmado_at: new Date().toISOString(),
+        pedido_numero: numeroPedido,
+        pedido_valor: valor,
+      },
+      { onConflict: "telefone", ignoreDuplicates: true },
+    )
+    .select("id")
+    .maybeSingle();
+
+  let contatoId: string | null = upserted?.id ?? null;
+  if (!contatoId) {
+    const { data: existente } = await supabase
+      .from("crm_contacts")
+      .select("id")
+      .eq("telefone", telefoneLimpo)
+      .maybeSingle();
+    contatoId = existente?.id ?? null;
+    if (contatoId) {
+      await supabase
+        .from("crm_contacts")
+        .update({
+          pedido_confirmado_at: new Date().toISOString(),
+          pedido_numero: numeroPedido,
+          pedido_valor: valor,
+        })
+        .eq("id", contatoId);
+    }
+  }
+  if (!contatoId) {
+    console.error("[pagamento] não foi possível criar/achar contato para", telefoneLimpo);
+    return;
+  }
+
+  const baseUrl = evolutionUrl.replace(/\/$/, "");
+  for (const texto of mensagens) {
+    try {
+      const resp = await fetch(`${baseUrl}/message/sendText/${instance}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: apiKey },
+        body: JSON.stringify({ number: telefoneLimpo, text: texto }),
+      });
+      const result = await resp.json();
+      const evolutionMessageId = result?.key?.id || result?.messageId || result?.id || null;
+      const payload: Record<string, unknown> = {
+        contact_id: contatoId,
+        conteudo: texto,
+        direcao: "enviada",
+      };
+      if (evolutionMessageId) payload.evolution_message_id = evolutionMessageId;
+      if (evolutionMessageId) {
+        await supabase
+          .from("crm_messages")
+          .upsert(payload, { onConflict: "evolution_message_id", ignoreDuplicates: true });
+      } else {
+        await supabase.from("crm_messages").insert(payload);
+      }
+    } catch (e) {
+      console.error("[pagamento] erro ao enviar mensagem", e);
+    }
+    await new Promise((r) => setTimeout(r, 1200 + Math.random() * 900));
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -99,6 +200,7 @@ Deno.serve(async (req) => {
     const taxaPagarme = parseFloat(order.gateway_fee) || 0;
     const rawTracking = order.shipping_tracking_number || order.fulfillments?.[0]?.tracking_number || null;
     const { rastreio_codigo: rastreioCodigo, superfrete_order_id: superfreteOrderId } = classifyTracking(rawTracking);
+    const statusPagamento = order.payment_status === "paid" ? "recebido" : "pendente";
 
     // Fetch William's commission rate
     const { data: williamData } = await supabase
@@ -134,11 +236,12 @@ Deno.serve(async (req) => {
       etapa_producao: etapa,
       vendedor_id: WILLIAM_VENDEDOR_ID,
       comissao,
+      status_pagamento: statusPagamento,
     };
 
     const { data: existing } = await supabase
       .from("pedidos")
-      .select("id, comissao_paga, comissao, taxa_pagarme, taxa_ted, valor_liquido")
+      .select("id, comissao_paga, comissao, taxa_pagarme, taxa_ted, valor_liquido, status_pagamento")
       .eq("nuvemshop_order_id", order.id)
       .maybeSingle();
 
@@ -158,6 +261,7 @@ Deno.serve(async (req) => {
         rastreio_codigo: pedidoData.rastreio_codigo,
         superfrete_order_id: pedidoData.superfrete_order_id,
         etapa_producao: pedidoData.etapa_producao,
+        status_pagamento: statusPagamento,
       };
       // Never overwrite paid commission. Otherwise also skip — pagarme-fees-sync owns it.
       const { data, error } = await supabase.from("pedidos").update(updateData).eq("id", existing.id).select("id").single();
@@ -167,6 +271,13 @@ Deno.serve(async (req) => {
       const { data, error } = await supabase.from("pedidos").insert(pedidoData).select("id").single();
       if (error) throw error;
       pedidoId = data.id;
+    }
+
+    // Dispara mensagem automática de boas-vindas quando o pagamento é confirmado
+    // pela primeira vez (evita reenviar em atualizações futuras do mesmo pedido).
+    const statusAnterior = existing?.status_pagamento ?? null;
+    if (statusPagamento === "recebido" && statusAnterior !== "recebido" && customerPhone) {
+      await enviarBoasVindasPagamento(supabase, customerPhone, customerName, pedidoData.numero_pedido, valorBruto);
     }
 
     // Sync items

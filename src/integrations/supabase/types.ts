@@ -131,6 +131,9 @@ export type Database = {
           nome: string
           notas: string | null
           origem: string | null
+          pedido_confirmado_at: string | null
+          pedido_numero: string | null
+          pedido_valor: number | null
           push_name: string | null
           status: string | null
           tags: string[] | null
@@ -152,6 +155,9 @@ export type Database = {
           nome: string
           notas?: string | null
           origem?: string | null
+          pedido_confirmado_at?: string | null
+          pedido_numero?: string | null
+          pedido_valor?: number | null
           push_name?: string | null
           status?: string | null
           tags?: string[] | null
@@ -173,6 +179,9 @@ export type Database = {
           nome?: string
           notas?: string | null
           origem?: string | null
+          pedido_confirmado_at?: string | null
+          pedido_numero?: string | null
+          pedido_valor?: number | null
           push_name?: string | null
           status?: string | null
           tags?: string[] | null

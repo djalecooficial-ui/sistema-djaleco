@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, MessageSquare, Phone, ArrowLeft, Bot, BookOpen, Sparkles, Paperclip } from "lucide-react";
+import { Plus, MessageSquare, Phone, ArrowLeft, Bot, BookOpen, Sparkles, Paperclip, Banknote } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -88,6 +88,9 @@ type Contato = {
   is_customer?: boolean;
   ai_enabled?: boolean | null;
   ai_suggestion?: unknown;
+  pedido_confirmado_at?: string | null;
+  pedido_numero?: string | null;
+  pedido_valor?: number | null;
 };
 
 function ContactCard({
@@ -98,6 +101,7 @@ function ContactCard({
   onClick: () => void;
 }) {
   const unread = (c.unread_count ?? 0) > 0;
+  const pagamentoConfirmado = !!c.pedido_confirmado_at;
   const lastDate = c.last_message_at ?? c.updated_at ?? c.created_at;
   const displayName = c.nome || c.push_name || c.telefone || "—";
   const initials = (displayName || "?")
@@ -110,11 +114,25 @@ function ContactCard({
     <Card
       onClick={onClick}
       className={`p-3 cursor-pointer hover:shadow-md transition-all space-y-2 ${
-        unread
+        pagamentoConfirmado
+          ? "border-blue-500/60 bg-blue-50 dark:bg-blue-950/30 ring-1 ring-blue-500/30"
+          : unread
           ? "border-green-500/60 bg-green-50 dark:bg-green-950/30 ring-1 ring-green-500/30"
           : "hover:border-primary/40"
       }`}
     >
+      {pagamentoConfirmado && (
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-blue-700 dark:text-blue-400">
+          <Banknote className="h-3.5 w-3.5" />
+          Pagamento confirmado · Pedido #{c.pedido_numero}
+          {typeof c.pedido_valor === "number" && (
+            <span>
+              {" "}
+              · {c.pedido_valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+            </span>
+          )}
+        </div>
+      )}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {unread && (
