@@ -175,35 +175,41 @@ serve(async (req) => {
       return new Response("ok", { status: 200, headers: corsHeaders });
     }
 
-    let { data: contato } = await supabase
-      .from("crm_contacts")
-      .select("id, status, avatar_url, push_name")
-      .eq("telefone", telefone)
-      .maybeSingle();
-
     const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
     const instance = Deno.env.get("EVOLUTION_CRM_INSTANCE");
     const apiKey = Deno.env.get("EVOLUTION_CRM_API_KEY");
 
-    if (!contato) {
-      let avatarUrl: string | null = null;
-      if (evolutionUrl && instance && apiKey) {
-        avatarUrl = await fetchProfilePicture(evolutionUrl, instance, apiKey, telefone);
-      }
-      const { data: novo } = await supabase
-        .from("crm_contacts")
-        .insert({
+    // Upsert atômico (ON CONFLICT DO NOTHING via ignoreDuplicates) evita criar
+    // contatos duplicados quando duas mensagens do mesmo número chegam quase
+    // ao mesmo tempo. Depende da constraint UNIQUE(telefone) em crm_contacts.
+    const { data: upserted } = await supabase
+      .from("crm_contacts")
+      .upsert(
+        {
           nome: nomeWhats || telefone,
           push_name: nomeWhats || null,
-          avatar_url: avatarUrl,
           telefone,
           origem: "whatsapp",
           status: "novo",
-        })
+        },
+        { onConflict: "telefone", ignoreDuplicates: true },
+      )
+      .select("id, status, avatar_url, push_name")
+      .maybeSingle();
+
+    let contato = upserted;
+
+    if (!contato) {
+      // Contato já existia (conflito no upsert): busca o registro atual
+      const { data: existente } = await supabase
+        .from("crm_contacts")
         .select("id, status, avatar_url, push_name")
-        .single();
-      contato = novo;
-    } else {
+        .eq("telefone", telefone)
+        .maybeSingle();
+      contato = existente;
+    }
+
+    if (contato) {
       // Atualiza push_name se mudou e tenta buscar avatar se ainda não temos
       const patch: Record<string, unknown> = {};
       if (nomeWhats && nomeWhats !== contato.push_name) {
