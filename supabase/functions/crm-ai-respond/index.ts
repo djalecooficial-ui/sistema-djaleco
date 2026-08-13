@@ -2,15 +2,46 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const MAX_HISTORY = 20;
+const MAX_AUDIO_TO_TRANSCRIBE = 5;
+const MAX_IMAGES_FOR_VISION = 3;
 
 function messageToText(m: any): string {
   if (m.media_type === "audio") {
     return m.transcription ? `[áudio transcrito] ${m.transcription}` : "[áudio sem transcrição]";
   }
+  if (m.media_type === "image") {
+    return m.caption ? `[imagem anexada abaixo] ${m.caption}` : "[imagem anexada abaixo]";
+  }
   if (m.media_type) {
     return m.caption ? `[${m.media_type}] ${m.caption}` : `[${m.media_type}]`;
   }
   return m.conteudo || "";
+}
+
+async function transcreverAudio(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  messageId: string,
+): Promise<string | null> {
+  try {
+    const resp = await fetch(`${supabaseUrl}/functions/v1/crm-transcribe-audio`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${serviceRoleKey}`,
+      },
+      body: JSON.stringify({ message_id: messageId }),
+    });
+    if (!resp.ok) {
+      console.error("[crm-ai-respond] falha ao transcrever", messageId, resp.status);
+      return null;
+    }
+    const json = await resp.json();
+    return json?.transcription || null;
+  } catch (e) {
+    console.error("[crm-ai-respond] exceção ao transcrever", messageId, e);
+    return null;
+  }
 }
 
 Deno.serve(async (req) => {
@@ -25,10 +56,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
     const lovableKey = Deno.env.get("LOVABLE_API_KEY");
     if (!lovableKey) {
       return new Response(JSON.stringify({ error: "LOVABLE_API_KEY ausente" }), {
@@ -56,16 +86,25 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { data: historico } = await supabase
+    const { data: historicoRaw } = await supabase
       .from("crm_messages")
-      .select("direcao, conteudo, media_type, caption, transcription, created_at")
+      .select("id, direcao, conteudo, media_type, media_url, media_mime, caption, transcription, created_at")
       .eq("contact_id", contact_id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(MAX_HISTORY);
 
-    const conversa = (historico ?? [])
-      .reverse()
+    const historico = (historicoRaw ?? []).reverse();
+
+    // Transcreve automaticamente os áudios que ainda não têm transcrição,
+    // pra IA "ouvir" o que o cliente mandou em vez de ver "[áudio sem transcrição]".
+    const audiosPendentes = historico.filter((m) => m.media_type === "audio" && m.media_url && !m.transcription);
+    for (const m of audiosPendentes.slice(-MAX_AUDIO_TO_TRANSCRIBE)) {
+      const transcricao = await transcreverAudio(supabaseUrl, serviceRoleKey, m.id);
+      if (transcricao) m.transcription = transcricao;
+    }
+
+    const conversa = historico
       .map((m) => `${m.direcao === "recebida" ? "Cliente" : "Loja"}: ${messageToText(m)}`)
       .join("\n");
 
@@ -88,6 +127,7 @@ Regras obrigatórias:
 3. Não use emojis nem caracteres especiais — comunicação limpa.
 4. Respostas curtas e diretas, mas completas.
 5. Se a mensagem do cliente for uma reclamação, envolver um pedido específico (rastreio, status de pagamento, problema com produto recebido) ou não estiver coberta pela base de conhecimento, você DEVE escalar para atendimento humano em vez de responder.
+6. Algumas mensagens do cliente podem incluir imagens anexadas junto com a transcrição da conversa — observe o conteúdo das imagens (foto de produto, print de comprovante, etc.) ao formular sua resposta.
 
 Formato da resposta: divida sua resposta em mensagens curtas, como uma pessoa digitando naturalmente no WhatsApp (entre 1 e 5 mensagens, nunca um texto único e longo). Responda SEMPRE em JSON puro, sem markdown, em um dos dois formatos exatos:
 
@@ -98,15 +138,26 @@ ou
 Base de conhecimento:
 ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
 
-    let userPrompt = `Conversa até agora (nome do cliente: ${contato.nome || contato.telefone}):\n${conversa}\n\nGere a próxima resposta da loja.`;
+    let userPromptText = `Conversa até agora (nome do cliente: ${contato.nome || contato.telefone}):\n${conversa}\n\nGere a próxima resposta da loja.`;
 
     if (feedback && typeof feedback === "string" && feedback.trim()) {
       const sugestaoAnterior = Array.isArray(contato.ai_suggestion)
         ? (contato.ai_suggestion as string[]).join(" / ")
         : null;
-      userPrompt += `\n\nVocê já tinha sugerido esta resposta${
+      userPromptText += `\n\nVocê já tinha sugerido esta resposta${
         sugestaoAnterior ? `: "${sugestaoAnterior}"` : ""
       }, mas o atendente humano deu o seguinte feedback sobre ela: "${feedback.trim()}". Gere uma nova sugestão levando esse feedback em conta.`;
+    }
+
+    // Monta conteúdo multimodal: texto + as imagens mais recentes da conversa,
+    // pra IA realmente "ver" o que o cliente mandou (não só "[imagem]").
+    const imagensRecentes = historico
+      .filter((m) => m.media_type === "image" && m.media_url)
+      .slice(-MAX_IMAGES_FOR_VISION);
+
+    const userContent: any[] = [{ type: "text", text: userPromptText }];
+    for (const img of imagensRecentes) {
+      userContent.push({ type: "image_url", image_url: { url: img.media_url } });
     }
 
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -119,7 +170,7 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
         model: "google/gemini-3-flash-preview",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
+          { role: "user", content: imagensRecentes.length > 0 ? userContent : userPromptText },
         ],
       }),
     });
