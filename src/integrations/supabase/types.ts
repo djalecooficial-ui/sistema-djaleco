@@ -191,6 +191,39 @@ export type Database = {
         }
         Relationships: []
       }
+      crm_board_columns: {
+        Row: {
+          board: string
+          cor: string
+          created_at: string | null
+          id: string
+          key: string
+          label: string
+          ordem: number
+          updated_at: string | null
+        }
+        Insert: {
+          board: string
+          cor?: string
+          created_at?: string | null
+          id?: string
+          key: string
+          label: string
+          ordem?: number
+          updated_at?: string | null
+        }
+        Update: {
+          board?: string
+          cor?: string
+          created_at?: string | null
+          id?: string
+          key?: string
+          label?: string
+          ordem?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       crm_attachments: {
         Row: {
           categoria: string | null

@@ -31,7 +31,7 @@ async function findOrCreateContato(supabase: any, telefoneLimpo: string, nomeCli
 
   const { data: criado, error } = await supabase
     .from("crm_contacts")
-    .insert({ nome: nomeCliente || telefoneLimpo, telefone: telefoneLimpo, origem: "site", status: "novo" })
+    .insert({ nome: nomeCliente || telefoneLimpo, telefone: telefoneLimpo, origem: "site", status: "aguardando_envio" })
     .select("id, tags")
     .single();
   if (error) {
