@@ -185,7 +185,7 @@ export default function CRMContato() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("pedidos")
-        .select("id, numero_pedido, data_pedido, valor_bruto, cliente_telefone")
+        .select("id, numero_pedido, data_pedido, valor_bruto, cliente_telefone, observacoes_pedido")
         .order("data_pedido", { ascending: false });
       if (error) throw error;
       const suffix = tel.slice(-8);
@@ -1019,26 +1019,37 @@ export default function CRMContato() {
               ) : (
                 <div className="divide-y">
                   {pedidos.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setPedidoModalId(p.id)}
-                      className="w-full flex items-center justify-between py-2 text-sm text-left hover:bg-muted/40 rounded-md px-2 -mx-2 transition-colors"
-                    >
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-medium truncate">#{p.numero_pedido}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {p.data_pedido
-                            ? format(new Date(p.data_pedido), "dd/MM/yyyy", {
-                                locale: ptBR,
-                              })
-                            : "—"}
+                    <div key={p.id} className="py-2">
+                      <button
+                        type="button"
+                        onClick={() => setPedidoModalId(p.id)}
+                        className="w-full flex items-center justify-between text-sm text-left hover:bg-muted/40 rounded-md px-2 -mx-2 py-1 transition-colors"
+                      >
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-medium truncate">#{p.numero_pedido}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {p.data_pedido
+                              ? format(new Date(p.data_pedido), "dd/MM/yyyy", {
+                                  locale: ptBR,
+                                })
+                              : "—"}
+                          </span>
+                        </div>
+                        <span className="font-semibold text-sm">
+                          {currency(p.valor_bruto)}
                         </span>
-                      </div>
-                      <span className="font-semibold text-sm">
-                        {currency(p.valor_bruto)}
-                      </span>
-                    </button>
+                      </button>
+                      {(p as any).observacoes_pedido && (
+                        <div className="mt-1 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-2 py-1.5">
+                          <p className="text-[11px] font-medium text-amber-900 dark:text-amber-300 mb-0.5">
+                            Observação do cliente
+                          </p>
+                          <p className="text-xs text-amber-950 dark:text-amber-200 whitespace-pre-wrap">
+                            {(p as any).observacoes_pedido}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
