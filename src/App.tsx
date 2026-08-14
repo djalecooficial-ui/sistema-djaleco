@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import { AuthContext, useAuthProvider } from "@/hooks/useAuth";
+import { useNewMessageNotifications } from "@/hooks/useNewMessageNotifications";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { PWAUpdateDialog } from "@/components/PWAUpdateDialog";
 import Login from "./pages/Login";
@@ -32,6 +33,7 @@ const queryClient = new QueryClient();
 
 function AppRoutes() {
   const auth = useAuthProvider();
+  useNewMessageNotifications(!!auth.user);
 
   return (
     <AuthContext.Provider value={auth}>

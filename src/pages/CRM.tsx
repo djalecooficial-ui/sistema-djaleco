@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, MessageSquare, Phone, ArrowLeft, Bot, BookOpen, Sparkles, Paperclip, Banknote } from "lucide-react";
+import { Plus, MessageSquare, Phone, ArrowLeft, Bot, BookOpen, Sparkles, Paperclip, Banknote, Bell } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -285,6 +285,15 @@ export default function CRM() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | "unsupported">(
+    typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+  );
+
+  const handleEnableNotifications = async () => {
+    if (typeof Notification === "undefined") return;
+    const result = await Notification.requestPermission();
+    setNotifPermission(result);
+  };
   const [activeId, setActiveId] = useState<string | null>(null);
   const [form, setForm] = useState({
     nome: "",
@@ -395,11 +404,16 @@ export default function CRM() {
     onError: (e: any) => toast.error(e.message ?? "Erro ao criar contato"),
   });
 
+  // Mensagens novas (não lidas) sempre no topo de cada coluna, mantendo a
+  // ordem por mais recente dentro de cada grupo (lido/não lido).
   const grouped = COLUMNS.reduce<Record<ColumnKey, Contato[]>>(
     (acc, col) => {
-      acc[col.key] = (contatos ?? []).filter(
+      const items = (contatos ?? []).filter(
         (c) => (c.status ?? "novo") === col.key,
       );
+      const naoLidos = items.filter((c) => (c.unread_count ?? 0) > 0);
+      const lidos = items.filter((c) => (c.unread_count ?? 0) === 0);
+      acc[col.key] = [...naoLidos, ...lidos];
       return acc;
     },
     { novo: [], em_atendimento: [], aguardando: [], resolvido: [] },
@@ -426,6 +440,16 @@ export default function CRM() {
           <Button variant="outline" onClick={() => navigate("/crm/anexos")}>
             <Paperclip className="h-4 w-4 mr-1" /> Anexos
           </Button>
+          {notifPermission === "default" && (
+            <Button variant="outline" onClick={handleEnableNotifications}>
+              <Bell className="h-4 w-4 mr-1" /> Ativar notificações
+            </Button>
+          )}
+          {notifPermission === "denied" && (
+            <Badge variant="outline" className="text-xs text-muted-foreground">
+              Notificações bloqueadas no navegador
+            </Badge>
+          )}
           <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button>
