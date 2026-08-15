@@ -10,11 +10,24 @@ function currency(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// Números de celular brasileiros podem aparecer com ou sem o "nono dígito"
+// (55DDD9XXXXXXXX vs 55DDDXXXXXXXX) dependendo da origem (loja vs WhatsApp).
+// Sem checar as duas formas, a mesma pessoa vira dois contatos diferentes.
+function telefoneAlternativo(tel: string): string | null {
+  const semNono = tel.match(/^(55\d{2})9(\d{8})$/);
+  if (semNono) return `${semNono[1]}${semNono[2]}`;
+  const comNono = tel.match(/^(55\d{2})(\d{8})$/);
+  if (comNono) return `${comNono[1]}9${comNono[2]}`;
+  return null;
+}
+
 async function findOrCreateContato(supabase: any, telefoneLimpo: string, nomeCliente: string) {
+  const alt = telefoneAlternativo(telefoneLimpo);
+  const candidatos = alt ? [telefoneLimpo, alt] : [telefoneLimpo];
   const { data: existente } = await supabase
     .from("crm_contacts")
     .select("id, tags")
-    .eq("telefone", telefoneLimpo)
+    .in("telefone", candidatos)
     .maybeSingle();
   if (existente) return existente as { id: string; tags: string[] | null };
 
@@ -27,7 +40,7 @@ async function findOrCreateContato(supabase: any, telefoneLimpo: string, nomeCli
     const { data: retry } = await supabase
       .from("crm_contacts")
       .select("id, tags")
-      .eq("telefone", telefoneLimpo)
+      .in("telefone", candidatos)
       .maybeSingle();
     return retry as { id: string; tags: string[] | null } | null;
   }

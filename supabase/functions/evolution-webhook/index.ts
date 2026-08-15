@@ -40,6 +40,17 @@ const MEDIA_KEYS = [
   ["documentWithCaptionMessage", "document"],
 ] as const;
 
+// Números de celular brasileiros podem chegar com ou sem o "nono dígito"
+// (55DDD9XXXXXXXX vs 55DDDXXXXXXXX). Sem checar as duas formas, a mesma
+// pessoa pode virar dois contatos diferentes (ex: pedido do site vs WhatsApp).
+function telefoneAlternativo(tel: string): string | null {
+  const semNono = tel.match(/^(55\d{2})9(\d{8})$/);
+  if (semNono) return `${semNono[1]}${semNono[2]}`;
+  const comNono = tel.match(/^(55\d{2})(\d{8})$/);
+  if (comNono) return `${comNono[1]}9${comNono[2]}`;
+  return null;
+}
+
 function extractMediaInfo(message: any) {
   if (!message) return null;
   for (const [key, type] of MEDIA_KEYS) {
@@ -179,34 +190,48 @@ serve(async (req) => {
     const instance = Deno.env.get("EVOLUTION_CRM_INSTANCE");
     const apiKey = Deno.env.get("EVOLUTION_CRM_API_KEY");
 
-    // Upsert atômico (ON CONFLICT DO NOTHING via ignoreDuplicates) evita criar
-    // contatos duplicados quando duas mensagens do mesmo número chegam quase
-    // ao mesmo tempo. Depende da constraint UNIQUE(telefone) em crm_contacts.
-    const { data: upserted } = await supabase
+    // Verifica primeiro se o contato já existe em qualquer uma das duas
+    // formas do telefone (com/sem o nono dígito) antes de criar um novo.
+    const telefoneAlt = telefoneAlternativo(telefone);
+    const telefoneCandidatos = telefoneAlt ? [telefone, telefoneAlt] : [telefone];
+
+    const { data: existentePreCheck } = await supabase
       .from("crm_contacts")
-      .upsert(
-        {
-          nome: nomeWhats || telefone,
-          push_name: nomeWhats || null,
-          telefone,
-          origem: "whatsapp",
-          status: "novo",
-        },
-        { onConflict: "telefone", ignoreDuplicates: true },
-      )
       .select("id, status, avatar_url, push_name")
+      .in("telefone", telefoneCandidatos)
       .maybeSingle();
 
-    let contato = upserted;
+    let contato = existentePreCheck;
 
     if (!contato) {
-      // Contato já existia (conflito no upsert): busca o registro atual
-      const { data: existente } = await supabase
+      // Não existe em nenhuma das formas: cria com upsert atômico (ON CONFLICT
+      // DO NOTHING via ignoreDuplicates) pra evitar duplicar se duas mensagens
+      // do mesmo número chegarem quase ao mesmo tempo.
+      const { data: upserted } = await supabase
         .from("crm_contacts")
+        .upsert(
+          {
+            nome: nomeWhats || telefone,
+            push_name: nomeWhats || null,
+            telefone,
+            origem: "whatsapp",
+            status: "novo",
+          },
+          { onConflict: "telefone", ignoreDuplicates: true },
+        )
         .select("id, status, avatar_url, push_name")
-        .eq("telefone", telefone)
         .maybeSingle();
-      contato = existente;
+      contato = upserted;
+
+      if (!contato) {
+        // Corrida: outro processo criou o contato entre o check e o upsert.
+        const { data: retry } = await supabase
+          .from("crm_contacts")
+          .select("id, status, avatar_url, push_name")
+          .in("telefone", telefoneCandidatos)
+          .maybeSingle();
+        contato = retry;
+      }
     }
 
     if (contato) {
