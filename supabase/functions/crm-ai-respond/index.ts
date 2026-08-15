@@ -117,6 +117,17 @@ Deno.serve(async (req) => {
       .map((e) => `## ${e.titulo}${e.categoria ? ` (${e.categoria})` : ""}\n${e.conteudo}`)
       .join("\n\n");
 
+    const { data: exemplos } = await supabase
+      .from("crm_response_examples")
+      .select("pergunta_cliente, resposta_humana")
+      .order("created_at", { ascending: false })
+      .limit(15);
+
+    const exemplosTexto = (exemplos ?? [])
+      .reverse()
+      .map((e) => `Cliente: ${e.pergunta_cliente}\nAtendente: ${e.resposta_humana}`)
+      .join("\n\n");
+
     const systemPrompt = `Você é Sofia, assistente virtual da Djaleco, atendendo clientes pelo WhatsApp.
 
 Seu papel: atender de forma acolhedora, clara e profissional — tirar dúvidas, apresentar produtos e ajudar o cliente a avançar na compra. Responda com objetividade, tom amigável e linguagem simples.
@@ -130,6 +141,7 @@ Regras obrigatórias:
 6. Não repita informação que você (Loja) já deu antes nessa mesma conversa (como o número de WhatsApp, por exemplo), a menos que o cliente pergunte de novo ou peça explicitamente.
 7. Se a mensagem do cliente for uma reclamação, envolver um pedido específico (rastreio, status de pagamento, problema com produto recebido) ou não estiver coberta pela base de conhecimento, você DEVE escalar para atendimento humano em vez de responder.
 8. Algumas mensagens do cliente podem incluir imagens anexadas junto com a transcrição da conversa — observe o conteúdo das imagens (foto de produto, print de comprovante, etc.) ao formular sua resposta.
+9. Abaixo, em "Exemplos de respostas do atendente", há conversas reais em que um atendente humano respondeu clientes. Use esses exemplos como referência de tom, vocabulário e jeito de escrever — imite o estilo real da equipe, não um tom genérico de robô. Nunca copie o conteúdo factual desses exemplos para outra pergunta, use-os só para aprender COMO escrever, não O QUE dizer.
 
 Formato da resposta: divida sua resposta em mensagens curtas, como uma pessoa digitando naturalmente no WhatsApp (entre 1 e 5 mensagens, nunca um texto único e longo). Responda SEMPRE em JSON puro, sem markdown, em um dos dois formatos exatos:
 
@@ -137,6 +149,7 @@ Formato da resposta: divida sua resposta em mensagens curtas, como uma pessoa di
 ou
 {"action": "escalate", "reason": "motivo curto"}
 
+${exemplosTexto ? `Exemplos de respostas do atendente (imite o estilo, não copie o conteúdo):\n${exemplosTexto}\n` : ""}
 Base de conhecimento:
 ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
 

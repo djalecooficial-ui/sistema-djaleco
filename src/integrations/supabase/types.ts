@@ -191,6 +191,38 @@ export type Database = {
         }
         Relationships: []
       }
+      crm_response_examples: {
+        Row: {
+          contact_id: string | null
+          created_at: string | null
+          id: string
+          pergunta_cliente: string
+          resposta_humana: string
+        }
+        Insert: {
+          contact_id?: string | null
+          created_at?: string | null
+          id?: string
+          pergunta_cliente: string
+          resposta_humana: string
+        }
+        Update: {
+          contact_id?: string | null
+          created_at?: string | null
+          id?: string
+          pergunta_cliente?: string
+          resposta_humana?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crm_response_examples_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "crm_contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       crm_board_columns: {
         Row: {
           board: string

@@ -283,6 +283,14 @@ export default function CRMContato() {
     if (!text || !contato || sending) return;
     setSending(true);
 
+    // Se a última mensagem foi do cliente, essa resposta manual vira um
+    // exemplo de estilo pra IA aprender a escrever como o atendente escreve.
+    const ultimaMsg = messages[messages.length - 1];
+    const perguntaCliente =
+      ultimaMsg && ultimaMsg.direcao === "recebida"
+        ? ultimaMsg.transcription || ultimaMsg.conteudo || (ultimaMsg.media_type ? `[${ultimaMsg.media_type}]` : null)
+        : null;
+
     const tempId = `temp-${Date.now()}`;
     const optimisticMsg = {
       id: tempId,
@@ -322,6 +330,15 @@ export default function CRMContato() {
       if (insertError) throw insertError;
       // Fallback caso o realtime demore: some a bolha otimista já aqui.
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
+
+      if (perguntaCliente) {
+        supabase
+          .from("crm_response_examples")
+          .insert({ contact_id: contato.id, pergunta_cliente: perguntaCliente, resposta_humana: text })
+          .then(({ error }) => {
+            if (error) console.error("[response_examples] erro ao salvar exemplo", error);
+          });
+      }
     } catch (e: any) {
       toast.error(e.message ?? "Erro ao enviar mensagem");
     } finally {
@@ -335,6 +352,7 @@ export default function CRMContato() {
   const [regeneratingSuggestion, setRegeneratingSuggestion] = useState(false);
   const [suggestionFeedback, setSuggestionFeedback] = useState("");
   const [suggestionSelected, setSuggestionSelected] = useState<boolean[]>([]);
+  const [suggestionCollapsed, setSuggestionCollapsed] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [sendingAttachmentId, setSendingAttachmentId] = useState<string | null>(null);
 
@@ -1342,10 +1360,27 @@ export default function CRMContato() {
         </div>
 
         {Array.isArray(contato.ai_suggestion) && contato.ai_suggestion.length > 0 && (
-          <div className="mx-3 md:mx-4 mb-2 rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
-              <Sparkles className="h-3.5 w-3.5" /> Sugestão pronta para enviar
-            </div>
+          <div className={`mx-3 md:mx-4 mb-2 rounded-lg border border-primary/30 bg-primary/5 ${suggestionCollapsed ? "p-2" : "p-3 space-y-2"}`}>
+            <button
+              type="button"
+              onClick={() => setSuggestionCollapsed((v) => !v)}
+              className="flex items-center gap-1.5 text-xs font-medium text-primary w-full"
+            >
+              <Sparkles className="h-3.5 w-3.5 shrink-0" />
+              <span className="flex-1 text-left">
+                Sugestão pronta para enviar
+                {suggestionCollapsed && (
+                  <span className="text-muted-foreground font-normal">
+                    {" "}
+                    ({(contato.ai_suggestion as string[]).length} mensagem
+                    {(contato.ai_suggestion as string[]).length > 1 ? "ns" : ""})
+                  </span>
+                )}
+              </span>
+              <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${suggestionCollapsed ? "-rotate-90" : ""}`} />
+            </button>
+            {!suggestionCollapsed && (
+              <>
             <div className="space-y-1.5">
               {(contato.ai_suggestion as string[]).map((m, i) => (
                 <label
@@ -1428,6 +1463,8 @@ export default function CRMContato() {
                 {approvingSuggestion ? "Enviando..." : "Aprovar e Enviar"}
               </Button>
             </div>
+              </>
+            )}
           </div>
         )}
 
