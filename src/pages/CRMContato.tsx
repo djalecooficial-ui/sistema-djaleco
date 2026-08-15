@@ -278,7 +278,88 @@ export default function CRMContato() {
     }
   }, [messages.length]);
 
+  const clearPastedImage = () => {
+    if (pastedPreviewUrl) URL.revokeObjectURL(pastedPreviewUrl);
+    setPastedFile(null);
+    setPastedPreviewUrl(null);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          clearPastedImage();
+          setPastedFile(file);
+          setPastedPreviewUrl(URL.createObjectURL(file));
+        }
+        break;
+      }
+    }
+  };
+
+  const handleSendPastedImage = async () => {
+    if (!contato || sending || !pastedFile) return;
+    setSending(true);
+    const caption = draft.trim();
+    try {
+      const ext = pastedFile.type.split("/")[1]?.split("+")[0] || "png";
+      const path = `${contato.id}/pasted-${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from("crm-media")
+        .upload(path, pastedFile, { contentType: pastedFile.type || "image/png", upsert: true });
+      if (upErr) throw upErr;
+      const { data: pub } = supabase.storage.from("crm-media").getPublicUrl(path);
+
+      const { data: sendResp, error: fnError } = await supabase.functions.invoke("evolution-send-message", {
+        body: {
+          telefone: contato.telefone,
+          contact_id: contato.id,
+          media_url: pub.publicUrl,
+          media_mime: pastedFile.type || "image/png",
+          media_filename: `imagem.${ext}`,
+          media_caption: caption || undefined,
+        },
+      });
+      if (fnError) throw fnError;
+      const evolutionMessageId = (sendResp as any)?.evolution_message_id ?? null;
+
+      const insertPayload: any = {
+        contact_id: contato.id,
+        conteudo: "",
+        direcao: "enviada",
+        media_type: "image",
+        media_mime: pastedFile.type || "image/png",
+        media_url: pub.publicUrl,
+        media_filename: `imagem.${ext}`,
+        caption: caption || null,
+        ...(evolutionMessageId ? { evolution_message_id: evolutionMessageId } : {}),
+      };
+      const { error: insertError } = evolutionMessageId
+        ? await supabase
+            .from("crm_messages")
+            .upsert(insertPayload, { onConflict: "evolution_message_id", ignoreDuplicates: true })
+        : await supabase.from("crm_messages").insert(insertPayload);
+      if (insertError) throw insertError;
+
+      clearPastedImage();
+      setDraft("");
+    } catch (e: any) {
+      toast.error(e.message ?? "Erro ao enviar imagem");
+    } finally {
+      setSending(false);
+    }
+  };
+
   const handleSend = async () => {
+    if (pastedFile) {
+      await handleSendPastedImage();
+      return;
+    }
     const text = draft.trim();
     if (!text || !contato || sending) return;
     setSending(true);
@@ -355,6 +436,8 @@ export default function CRMContato() {
   const [suggestionCollapsed, setSuggestionCollapsed] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [sendingAttachmentId, setSendingAttachmentId] = useState<string | null>(null);
+  const [pastedFile, setPastedFile] = useState<File | null>(null);
+  const [pastedPreviewUrl, setPastedPreviewUrl] = useState<string | null>(null);
 
   const { data: attachments } = useQuery({
     queryKey: ["crm_attachments"],
@@ -1499,6 +1582,24 @@ export default function CRMContato() {
             </div>
           ) : (
             <>
+              {pastedPreviewUrl && (
+                <div className="mb-2 flex items-start gap-2 rounded-md border bg-muted/40 p-2">
+                  <img src={pastedPreviewUrl} alt="Imagem colada" className="h-16 w-16 rounded-md object-cover shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium">Imagem colada</p>
+                    <p className="text-[11px] text-muted-foreground">Digite uma legenda (opcional) e envie</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0"
+                    onClick={clearPastedImage}
+                    aria-label="Remover imagem"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
               <div className="flex items-end gap-2">
                 <Button
                   onClick={() => setAttachOpen(true)}
@@ -1519,15 +1620,16 @@ export default function CRMContato() {
                       handleSend();
                     }
                   }}
-                  placeholder="Digite uma mensagem..."
+                  onPaste={handlePaste}
+                  placeholder={pastedFile ? "Legenda da imagem (opcional)..." : "Digite uma mensagem..."}
                   rows={1}
                   className="resize-none min-h-[40px] max-h-40"
                   disabled={sendingAudio}
                 />
-                {draft.trim() ? (
+                {draft.trim() || pastedFile ? (
                   <Button
                     onClick={handleSend}
-                    disabled={sending || !draft.trim()}
+                    disabled={sending || (!draft.trim() && !pastedFile)}
                     className="shrink-0"
                   >
                     <Send className="h-4 w-4 mr-2" />
@@ -1547,7 +1649,7 @@ export default function CRMContato() {
                 )}
               </div>
               <p className="text-[10px] text-muted-foreground mt-1.5">
-                {sendingAudio ? "Enviando áudio..." : "Ctrl+Enter para enviar · Toque no microfone para gravar"}
+                {sendingAudio ? "Enviando áudio..." : "Ctrl+Enter para enviar · Ctrl+V para colar imagem · Toque no microfone para gravar"}
               </p>
             </>
           )}
