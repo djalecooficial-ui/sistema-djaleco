@@ -30,11 +30,12 @@ export function useNewMessageNotifications(enabled: boolean) {
 
           const { data: contato } = await supabase
             .from("crm_contacts")
-            .select("nome, telefone, push_name")
+            .select("nome, telefone, push_name, origem")
             .eq("id", msg.contact_id)
             .maybeSingle();
 
-          const titulo = contato?.nome || contato?.push_name || contato?.telefone || "Nova mensagem";
+          const nomeContato = contato?.nome || contato?.push_name || contato?.telefone || "Nova mensagem";
+          const titulo = contato?.origem === "site" ? `[Site] ${nomeContato}` : nomeContato;
           const corpo =
             msg.conteudo?.trim() ||
             (msg.media_type ? `Enviou um(a) ${msg.media_type}` : "Nova mensagem");

@@ -748,10 +748,13 @@ export default function CRMContato() {
           await sleep(1200 + Math.random() * 900);
         }
       }
-      await supabase
-        .from("crm_contacts")
-        .update({ ai_suggestion: null })
-        .eq("id", contato.id);
+      const patch: Record<string, unknown> = { ai_suggestion: null };
+      // Avança automaticamente pra "Confirmação Enviada" no quadro de
+      // Pedidos do Site, quando ainda estava aguardando o envio.
+      if (contato.origem === "site" && (contato as any).status === "aguardando_envio") {
+        patch.status = "confirmacao_enviada";
+      }
+      await supabase.from("crm_contacts").update(patch).eq("id", contato.id);
       qc.invalidateQueries({ queryKey: ["crm_contact", contactId] });
       setSuggestionFeedback("");
       setSaveFeedbackAsRule(false);

@@ -197,7 +197,7 @@ serve(async (req) => {
 
     const { data: existentePreCheck } = await supabase
       .from("crm_contacts")
-      .select("id, status, avatar_url, push_name")
+      .select("id, status, origem, avatar_url, push_name")
       .in("telefone", telefoneCandidatos)
       .maybeSingle();
 
@@ -219,7 +219,7 @@ serve(async (req) => {
           },
           { onConflict: "telefone", ignoreDuplicates: true },
         )
-        .select("id, status, avatar_url, push_name")
+        .select("id, status, origem, avatar_url, push_name")
         .maybeSingle();
       contato = upserted;
 
@@ -227,7 +227,7 @@ serve(async (req) => {
         // Corrida: outro processo criou o contato entre o check e o upsert.
         const { data: retry } = await supabase
           .from("crm_contacts")
-          .select("id, status, avatar_url, push_name")
+          .select("id, status, origem, avatar_url, push_name")
           .in("telefone", telefoneCandidatos)
           .maybeSingle();
         contato = retry;
@@ -250,6 +250,17 @@ serve(async (req) => {
     }
 
     const direcao = fromMe ? "enviada" : "recebida";
+
+    // Cliente do site respondeu: avança automaticamente pra coluna
+    // "Cliente Respondeu" no quadro de Pedidos do Site, pra não ficar
+    // escondido em "Aguardando Envio"/"Confirmação Enviada".
+    if (
+      direcao === "recebida" &&
+      contato?.origem === "site" &&
+      (contato.status === "aguardando_envio" || contato.status === "confirmacao_enviada")
+    ) {
+      await supabase.from("crm_contacts").update({ status: "cliente_respondeu" }).eq("id", contato.id);
+    }
 
     // Faz download da mídia (se houver) antes de inserir
     let mediaUrl: string | null = null;
