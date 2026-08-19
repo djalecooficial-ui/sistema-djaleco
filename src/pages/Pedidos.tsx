@@ -162,6 +162,7 @@ export default function Pedidos() {
         `CEP: ${cep}`,
         `CPF/CNPJ: ${documento}`,
         `Pedido: ${pedidoDesc}`,
+        ...(p.observacoes_pedido ? [`*Obs: ${p.observacoes_pedido}*`] : []),
         ``,
         `*Valores:*`,
         `Valor Bruto: ${fmt(valorBruto)}`,
