@@ -21,6 +21,96 @@ function classifyTracking(raw: string | null | undefined): { rastreio_codigo: st
   return { rastreio_codigo: null, superfrete_order_id: null };
 }
 
+function currency(v: number) {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// Números de celular brasileiros podem aparecer com ou sem o "nono dígito"
+// (55DDD9XXXXXXXX vs 55DDDXXXXXXXX) dependendo da origem (loja vs WhatsApp).
+// Sem checar as duas formas, a mesma pessoa vira dois contatos diferentes.
+function telefoneAlternativo(tel: string): string | null {
+  const semNono = tel.match(/^(55\d{2})9(\d{8})$/);
+  if (semNono) return `${semNono[1]}${semNono[2]}`;
+  const comNono = tel.match(/^(55\d{2})(\d{8})$/);
+  if (comNono) return `${comNono[1]}9${comNono[2]}`;
+  return null;
+}
+
+async function findOrCreateContato(supabase: any, telefoneLimpo: string, nomeCliente: string) {
+  const alt = telefoneAlternativo(telefoneLimpo);
+  const candidatos = alt ? [telefoneLimpo, alt] : [telefoneLimpo];
+  const { data: existente } = await supabase
+    .from("crm_contacts")
+    .select("id, tags, status")
+    .in("telefone", candidatos)
+    .maybeSingle();
+  if (existente) return existente as { id: string; tags: string[] | null; status: string | null };
+
+  const { data: criado, error } = await supabase
+    .from("crm_contacts")
+    .insert({ nome: nomeCliente || telefoneLimpo, telefone: telefoneLimpo, origem: "site", status: "aguardando_envio" })
+    .select("id, tags, status")
+    .single();
+  if (error) {
+    const { data: retry } = await supabase
+      .from("crm_contacts")
+      .select("id, tags, status")
+      .in("telefone", candidatos)
+      .maybeSingle();
+    return retry as { id: string; tags: string[] | null; status: string | null } | null;
+  }
+  return criado as { id: string; tags: string[] | null; status: string | null };
+}
+
+function mergeTags(atual: string[] | null | undefined, adicionar: string, removerPrefixo: string): string[] {
+  const semAntigas = (atual ?? []).filter((t) => !t.startsWith(removerPrefixo));
+  return Array.from(new Set([...semAntigas, adicionar]));
+}
+
+// Mesma automação do nuvemshop-webhook: quando um pedido muda pra pago
+// (aqui, via sincronização manual em vez do webhook em tempo real), prepara
+// a sugestão de mensagem de confirmação — NÃO envia nada sozinho, precisa de
+// aprovação humana na tela da conversa.
+async function prepararSugestaoPagamentoConfirmado(
+  supabase: any,
+  telefone: string,
+  nomeCliente: string,
+  numeroPedido: string,
+  valor: number,
+) {
+  const telefoneLimpo = telefone.replace(/\D/g, "");
+  const primeiroNome = (nomeCliente || "").trim().split(/\s+/)[0] || "";
+
+  const mensagens = [
+    `Oi${primeiroNome ? " " + primeiroNome : ""}! Recebemos a confirmação do pagamento do seu pedido #${numeroPedido}, no valor de ${currency(valor)}.`,
+    "Já vamos começar a produção agora.",
+    "O prazo é de 20 dias corridos de produção, mais o prazo de entrega dos Correios ou transportadora, que varia conforme o seu CEP.",
+    "Qualquer dúvida, é só chamar por aqui.",
+  ];
+
+  const contato = await findOrCreateContato(supabase, telefoneLimpo, nomeCliente);
+  if (!contato) {
+    console.error("[sync/pagamento] não foi possível criar/achar contato para", telefoneLimpo);
+    return;
+  }
+
+  const novasTags = mergeTags(contato.tags, `Pagamento Confirmado #${numeroPedido}`, `Pagamento Pendente #${numeroPedido}`);
+
+  const patch: Record<string, unknown> = {
+    tags: novasTags,
+    pedido_confirmado_at: new Date().toISOString(),
+    pedido_numero: numeroPedido,
+    pedido_valor: valor,
+    ai_suggestion: mensagens,
+    ai_suggestion_at: new Date().toISOString(),
+  };
+  if (contato.status === "carrinho_abandonado") {
+    patch.status = "aguardando_envio";
+  }
+
+  await supabase.from("crm_contacts").update(patch).eq("id", contato.id);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -124,7 +214,7 @@ Deno.serve(async (req) => {
     const nuvemshopIds = allOrders.map((o: any) => o.id).filter(Boolean);
     const { data: existingPedidos } = await supabase
       .from("pedidos")
-      .select("id, nuvemshop_order_id, taxa_pagarme, taxa_ted, ted_confirmado, comissao, valor_liquido, etapa_producao")
+      .select("id, nuvemshop_order_id, taxa_pagarme, taxa_ted, ted_confirmado, comissao, valor_liquido, etapa_producao, status_pagamento")
       .in("nuvemshop_order_id", nuvemshopIds);
     const pedidoMap = new Map((existingPedidos || []).map((p: any) => [p.nuvemshop_order_id, p]));
 
@@ -203,6 +293,9 @@ Deno.serve(async (req) => {
     const toInsert: any[] = [];
     const toUpdate: { id: string; data: any }[] = [];
     const orderItemsMapNew: { orderIdx: number; products: any[] }[] = [];
+    // Pedidos que viraram pagos nesta sincronização — dispara a mesma
+    // automação de sugestão de mensagem que o webhook em tempo real dispara.
+    const pagosNestaSincronizacao: { telefone: string; nome: string; numero: string; valor: number }[] = [];
 
     for (let i = 0; i < allOrders.length; i++) {
       const order = allOrders[i];
@@ -242,6 +335,10 @@ Deno.serve(async (req) => {
         // Sync customer note from Nuvemshop
         if (order.note) {
           updateData.observacoes_pedido = order.note;
+        }
+
+        if (statusPagamento === "recebido" && existing.status_pagamento !== "recebido" && customerPhone) {
+          pagosNestaSincronizacao.push({ telefone: customerPhone, nome: customerName, numero: String(order.number || order.id), valor: valorBruto });
         }
 
         toUpdate.push({ id: existing.id, data: updateData });
@@ -311,6 +408,10 @@ Deno.serve(async (req) => {
     }
 
     syncedOrders = toInsert.length + toUpdate.length;
+
+    for (const pago of pagosNestaSincronizacao) {
+      await prepararSugestaoPagamentoConfirmado(supabase, pago.telefone, pago.nome, pago.numero, pago.valor);
+    }
 
     // Insert items only for NEW orders
     const allItems: any[] = [];

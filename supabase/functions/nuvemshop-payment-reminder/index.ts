@@ -3,8 +3,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const WAIT_HOURS = 2;
 // Não considera pedidos mais antigos que isso — evita marcar pedidos
-// velhos/abandonados há muito tempo.
-const MAX_AGE_HOURS = 48;
+// velhos/abandonados há muito tempo. Pedidos que passarem desse limite sem
+// nunca terem sido processados (ex: instabilidade no cron) ficam invisíveis
+// pro sistema, por isso 7 dias em vez de 48h.
+const MAX_AGE_HOURS = 24 * 7;
 
 function currency(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
