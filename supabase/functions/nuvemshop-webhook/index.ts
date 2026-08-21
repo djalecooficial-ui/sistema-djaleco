@@ -37,26 +37,26 @@ async function findOrCreateContato(supabase: any, telefoneLimpo: string, nomeCli
   const candidatos = alt ? [telefoneLimpo, alt] : [telefoneLimpo];
   const { data: existente } = await supabase
     .from("crm_contacts")
-    .select("id, tags")
+    .select("id, tags, status")
     .in("telefone", candidatos)
     .maybeSingle();
-  if (existente) return existente as { id: string; tags: string[] | null };
+  if (existente) return existente as { id: string; tags: string[] | null; status: string | null };
 
   const { data: criado, error } = await supabase
     .from("crm_contacts")
     .insert({ nome: nomeCliente || telefoneLimpo, telefone: telefoneLimpo, origem: "site", status: "aguardando_envio" })
-    .select("id, tags")
+    .select("id, tags, status")
     .single();
   if (error) {
     // Corrida: outro processo criou o contato entre o select e o insert.
     const { data: retry } = await supabase
       .from("crm_contacts")
-      .select("id, tags")
+      .select("id, tags, status")
       .in("telefone", candidatos)
       .maybeSingle();
-    return retry as { id: string; tags: string[] | null } | null;
+    return retry as { id: string; tags: string[] | null; status: string | null } | null;
   }
-  return criado as { id: string; tags: string[] | null };
+  return criado as { id: string; tags: string[] | null; status: string | null };
 }
 
 function mergeTags(atual: string[] | null | undefined, adicionar: string, removerPrefixo: string): string[] {
@@ -92,17 +92,21 @@ async function prepararSugestaoPagamentoConfirmado(
 
   const novasTags = mergeTags(contato.tags, `Pagamento Confirmado #${numeroPedido}`, `Pagamento Pendente #${numeroPedido}`);
 
-  await supabase
-    .from("crm_contacts")
-    .update({
-      tags: novasTags,
-      pedido_confirmado_at: new Date().toISOString(),
-      pedido_numero: numeroPedido,
-      pedido_valor: valor,
-      ai_suggestion: mensagens,
-      ai_suggestion_at: new Date().toISOString(),
-    })
-    .eq("id", contato.id);
+  const patch: Record<string, unknown> = {
+    tags: novasTags,
+    pedido_confirmado_at: new Date().toISOString(),
+    pedido_numero: numeroPedido,
+    pedido_valor: valor,
+    ai_suggestion: mensagens,
+    ai_suggestion_at: new Date().toISOString(),
+  };
+  // Cliente que tinha carrinho abandonado e agora pagou: sai da coluna
+  // "Carrinho Abandonado" e entra no fluxo normal de pós-compra.
+  if (contato.status === "carrinho_abandonado") {
+    patch.status = "aguardando_envio";
+  }
+
+  await supabase.from("crm_contacts").update(patch).eq("id", contato.id);
 }
 
 Deno.serve(async (req) => {
