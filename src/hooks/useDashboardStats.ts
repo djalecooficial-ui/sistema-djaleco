@@ -46,12 +46,16 @@ export function useDashboardStats(periodStart: Date, periodEnd: Date) {
       if (clientesRes.error) throw clientesRes.error;
 
       const pedidosMes = pedidosRes.data || [];
-      const faturamentoBruto = pedidosMes.reduce((s, p) => s + Number(p.valor_bruto), 0);
-      const faturamentoLiquido = pedidosMes.reduce((s, p) => s + Number(p.valor_liquido), 0);
-      const ticketMedio = pedidosMes.length > 0 ? faturamentoBruto / pedidosMes.length : 0;
-      const totalTaxasPagarme = pedidosMes.reduce((s, p) => s + Number(p.taxa_pagarme), 0);
-      const totalFrete = pedidosMes.reduce((s, p) => s + Number(p.frete), 0);
-      const totalComissoes = pedidosMes.reduce((s, p) => s + Number(p.comissao), 0);
+      // Faturamento e demais indicadores financeiros só contam pedidos com
+      // pagamento confirmado — dinheiro que realmente entrou, não só vendas
+      // fechadas. O card "Pedidos" (volume) continua contando todos.
+      const pedidosPagos = pedidosMes.filter((p) => p.status_pagamento === "recebido");
+      const faturamentoBruto = pedidosPagos.reduce((s, p) => s + Number(p.valor_bruto), 0);
+      const faturamentoLiquido = pedidosPagos.reduce((s, p) => s + Number(p.valor_liquido), 0);
+      const ticketMedio = pedidosPagos.length > 0 ? faturamentoBruto / pedidosPagos.length : 0;
+      const totalTaxasPagarme = pedidosPagos.reduce((s, p) => s + Number(p.taxa_pagarme), 0);
+      const totalFrete = pedidosPagos.reduce((s, p) => s + Number(p.frete), 0);
+      const totalComissoes = pedidosPagos.reduce((s, p) => s + Number(p.comissao), 0);
       const lucroOperacional = faturamentoBruto - totalTaxasPagarme - totalFrete - totalComissoes;
 
       // Variation vs previous period
