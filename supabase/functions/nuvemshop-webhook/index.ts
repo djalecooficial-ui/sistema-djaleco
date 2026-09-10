@@ -100,9 +100,9 @@ async function prepararSugestaoPagamentoConfirmado(
     ai_suggestion: mensagens,
     ai_suggestion_at: new Date().toISOString(),
   };
-  // Cliente que tinha carrinho abandonado e agora pagou: sai da coluna
-  // "Carrinho Abandonado" e entra no fluxo normal de pós-compra.
-  if (contato.status === "carrinho_abandonado") {
+  // Cliente que tinha carrinho abandonado ou pagamento pendente e agora
+  // pagou: sai dessas colunas e entra no fluxo normal de pós-compra.
+  if (contato.status === "carrinho_abandonado" || contato.status === "pagamento_pendente") {
     patch.status = "aguardando_envio";
   }
 

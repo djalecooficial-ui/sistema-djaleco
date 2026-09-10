@@ -104,7 +104,7 @@ async function prepararSugestaoPagamentoConfirmado(
     ai_suggestion: mensagens,
     ai_suggestion_at: new Date().toISOString(),
   };
-  if (contato.status === "carrinho_abandonado") {
+  if (contato.status === "carrinho_abandonado" || contato.status === "pagamento_pendente") {
     patch.status = "aguardando_envio";
   }
 

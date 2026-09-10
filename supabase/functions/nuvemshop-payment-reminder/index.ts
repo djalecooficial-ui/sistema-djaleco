@@ -28,25 +28,25 @@ async function findOrCreateContato(supabase: any, telefoneLimpo: string, nomeCli
   const candidatos = alt ? [telefoneLimpo, alt] : [telefoneLimpo];
   const { data: existente } = await supabase
     .from("crm_contacts")
-    .select("id, tags")
+    .select("id, tags, status")
     .in("telefone", candidatos)
     .maybeSingle();
-  if (existente) return existente as { id: string; tags: string[] | null };
+  if (existente) return existente as { id: string; tags: string[] | null; status: string | null };
 
   const { data: criado, error } = await supabase
     .from("crm_contacts")
-    .insert({ nome: nomeCliente || telefoneLimpo, telefone: telefoneLimpo, origem: "site", status: "aguardando_envio" })
-    .select("id, tags")
+    .insert({ nome: nomeCliente || telefoneLimpo, telefone: telefoneLimpo, origem: "site", status: "pagamento_pendente" })
+    .select("id, tags, status")
     .single();
   if (error) {
     const { data: retry } = await supabase
       .from("crm_contacts")
-      .select("id, tags")
+      .select("id, tags, status")
       .in("telefone", candidatos)
       .maybeSingle();
-    return retry as { id: string; tags: string[] | null } | null;
+    return retry as { id: string; tags: string[] | null; status: string | null } | null;
   }
-  return criado as { id: string; tags: string[] | null };
+  return criado as { id: string; tags: string[] | null; status: string | null };
 }
 
 Deno.serve(async (req) => {
@@ -102,14 +102,19 @@ Deno.serve(async (req) => {
 
       // Modo sugestão: só prepara, não envia. Precisa de aprovação humana
       // na tela da conversa antes de qualquer mensagem sair pelo WhatsApp.
-      await supabase
-        .from("crm_contacts")
-        .update({
-          tags: novasTags,
-          ai_suggestion: mensagens,
-          ai_suggestion_at: new Date().toISOString(),
-        })
-        .eq("id", contato.id);
+      const patch: Record<string, unknown> = {
+        tags: novasTags,
+        ai_suggestion: mensagens,
+        ai_suggestion_at: new Date().toISOString(),
+      };
+      // Só move pra coluna "Pagamento Pendente" se o contato ainda não tiver
+      // avançado numa conversa ativa — não queremos puxar de volta alguém
+      // que já está em "Cliente Respondeu", por exemplo.
+      if (contato.status === "aguardando_envio" || contato.status === "carrinho_abandonado") {
+        patch.status = "pagamento_pendente";
+      }
+
+      await supabase.from("crm_contacts").update(patch).eq("id", contato.id);
 
       await supabase.from("pedidos").update({ lembrete_pagamento_enviado_at: new Date().toISOString() }).eq("id", pedido.id);
       processed++;
