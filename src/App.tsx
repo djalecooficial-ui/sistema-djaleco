@@ -29,6 +29,7 @@ const Vendedores = lazy(() => import("./pages/Vendedores"));
 const Sistema = lazy(() => import("./pages/Sistema"));
 const CarrinhosAbandonados = lazy(() => import("./pages/CarrinhosAbandonados"));
 const Relatorios = lazy(() => import("./pages/Relatorios"));
+const Usuarios = lazy(() => import("./pages/Usuarios"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -42,25 +43,26 @@ function AppRoutes() {
       <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/pedidos" element={<ProtectedRoute><Pedidos /></ProtectedRoute>} />
-        <Route path="/pedidos/novo" element={<ProtectedRoute><NovoPedido /></ProtectedRoute>} />
-        <Route path="/pedidos/:id" element={<ProtectedRoute><PedidoDetalhe /></ProtectedRoute>} />
-        <Route path="/producao" element={<ProtectedRoute><Producao /></ProtectedRoute>} />
-        <Route path="/produtos" element={<ProtectedRoute><Produtos /></ProtectedRoute>} />
-        <Route path="/clientes" element={<ProtectedRoute><Clientes /></ProtectedRoute>} />
-        <Route path="/crm" element={<ProtectedRoute><CRM /></ProtectedRoute>} />
-        <Route path="/crm/base-conhecimento" element={<ProtectedRoute><CRMBaseConhecimento /></ProtectedRoute>} />
-        <Route path="/crm/anexos" element={<ProtectedRoute><CRMAnexos /></ProtectedRoute>} />
-        <Route path="/crm/site" element={<ProtectedRoute><CRMSite /></ProtectedRoute>} />
-        <Route path="/crm/colunas" element={<ProtectedRoute><CRMColunas /></ProtectedRoute>} />
-        <Route path="/crm/:id" element={<ProtectedRoute><CRMContato /></ProtectedRoute>} />
-        <Route path="/clientes/:id" element={<ProtectedRoute><ClienteDetalhe /></ProtectedRoute>} />
-        <Route path="/financeiro" element={<ProtectedRoute><Financeiro /></ProtectedRoute>} />
+        <Route path="/" element={<ProtectedRoute pageKey="dashboard"><Dashboard /></ProtectedRoute>} />
+        <Route path="/pedidos" element={<ProtectedRoute pageKey="pedidos"><Pedidos /></ProtectedRoute>} />
+        <Route path="/pedidos/novo" element={<ProtectedRoute pageKey="pedidos"><NovoPedido /></ProtectedRoute>} />
+        <Route path="/pedidos/:id" element={<ProtectedRoute pageKey="pedidos"><PedidoDetalhe /></ProtectedRoute>} />
+        <Route path="/producao" element={<ProtectedRoute pageKey="producao"><Producao /></ProtectedRoute>} />
+        <Route path="/produtos" element={<ProtectedRoute pageKey="produtos"><Produtos /></ProtectedRoute>} />
+        <Route path="/clientes" element={<ProtectedRoute pageKey="clientes"><Clientes /></ProtectedRoute>} />
+        <Route path="/crm" element={<ProtectedRoute pageKey="crm"><CRM /></ProtectedRoute>} />
+        <Route path="/crm/base-conhecimento" element={<ProtectedRoute pageKey="crm"><CRMBaseConhecimento /></ProtectedRoute>} />
+        <Route path="/crm/anexos" element={<ProtectedRoute pageKey="crm"><CRMAnexos /></ProtectedRoute>} />
+        <Route path="/crm/site" element={<ProtectedRoute pageKey="crm"><CRMSite /></ProtectedRoute>} />
+        <Route path="/crm/colunas" element={<ProtectedRoute pageKey="crm"><CRMColunas /></ProtectedRoute>} />
+        <Route path="/crm/:id" element={<ProtectedRoute pageKey="crm"><CRMContato /></ProtectedRoute>} />
+        <Route path="/clientes/:id" element={<ProtectedRoute pageKey="clientes"><ClienteDetalhe /></ProtectedRoute>} />
+        <Route path="/financeiro" element={<ProtectedRoute pageKey="financeiro"><Financeiro /></ProtectedRoute>} />
         <Route path="/vendedores" element={<ProtectedRoute adminOnly><Vendedores /></ProtectedRoute>} />
-        <Route path="/carrinhos-abandonados" element={<ProtectedRoute><CarrinhosAbandonados /></ProtectedRoute>} />
-        <Route path="/relatorios" element={<ProtectedRoute><Relatorios /></ProtectedRoute>} />
+        <Route path="/carrinhos-abandonados" element={<ProtectedRoute pageKey="carrinhos"><CarrinhosAbandonados /></ProtectedRoute>} />
+        <Route path="/relatorios" element={<ProtectedRoute pageKey="relatorios"><Relatorios /></ProtectedRoute>} />
         <Route path="/sistema" element={<ProtectedRoute adminOnly><Sistema /></ProtectedRoute>} />
+        <Route path="/usuarios" element={<ProtectedRoute adminOnly><Usuarios /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       </Suspense>

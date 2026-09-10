@@ -7,40 +7,44 @@ import { UserCog, Settings } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 const mainItems = [
-  { title: "Home", url: "/", icon: LayoutDashboard },
-  { title: "Pedidos", url: "/pedidos", icon: ShoppingBag },
-  { title: "Produção", url: "/producao", icon: Factory },
-  { title: "Produtos", url: "/produtos", icon: Package },
-  { title: "Mais", url: "#more", icon: MoreHorizontal },
+  { title: "Home", url: "/", icon: LayoutDashboard, pageKey: "dashboard" },
+  { title: "Pedidos", url: "/pedidos", icon: ShoppingBag, pageKey: "pedidos" },
+  { title: "Produção", url: "/producao", icon: Factory, pageKey: "producao" },
+  { title: "Produtos", url: "/produtos", icon: Package, pageKey: "produtos" },
+  { title: "Mais", url: "#more", icon: MoreHorizontal, pageKey: null },
 ];
 
 const moreItems = [
-  { title: "Clientes", url: "/clientes", icon: Users },
-  { title: "CRM", url: "/crm", icon: MessageSquare },
-  { title: "Carrinhos", url: "/carrinhos-abandonados", icon: ShoppingCart },
-  { title: "Financeiro", url: "/financeiro", icon: DollarSign },
-  { title: "Relatórios", url: "/relatorios", icon: BarChart3 },
+  { title: "Clientes", url: "/clientes", icon: Users, pageKey: "clientes" },
+  { title: "CRM", url: "/crm", icon: MessageSquare, pageKey: "crm" },
+  { title: "Carrinhos", url: "/carrinhos-abandonados", icon: ShoppingCart, pageKey: "carrinhos" },
+  { title: "Financeiro", url: "/financeiro", icon: DollarSign, pageKey: "financeiro" },
+  { title: "Relatórios", url: "/relatorios", icon: BarChart3, pageKey: "relatorios" },
   { title: "Vendedores", url: "/vendedores", icon: UserCog, adminOnly: true },
+  { title: "Usuários", url: "/usuarios", icon: Users, adminOnly: true },
   { title: "Sistema", url: "/sistema", icon: Settings, adminOnly: true },
 ];
 
 export function BottomNav() {
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
-  const { isAdmin } = useAuth();
+  const { isAdmin, canAccess } = useAuth();
 
   const isActive = (path: string) =>
     path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
 
   const moreIsActive = moreItems.some((item) => isActive(item.url));
 
-  const visibleMoreItems = moreItems.filter((item) => !item.adminOnly || isAdmin);
+  const visibleMainItems = mainItems.filter((item) => !item.pageKey || canAccess(item.pageKey));
+  const visibleMoreItems = moreItems.filter((item) =>
+    item.adminOnly ? isAdmin : canAccess(item.pageKey!)
+  );
 
   return (
     <>
       <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-card md:hidden">
         <div className="flex items-center justify-around h-14 px-1 safe-bottom">
-          {mainItems.map((item) => {
+          {visibleMainItems.map((item) => {
             const isMore = item.url === "#more";
             const active = isMore ? moreIsActive || moreOpen : isActive(item.url);
 

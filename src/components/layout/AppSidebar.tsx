@@ -32,19 +32,20 @@ import {
 import { Button } from "@/components/ui/button";
 
 const mainItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Pedidos", url: "/pedidos", icon: ShoppingBag },
-  { title: "Produção", url: "/producao", icon: Factory },
-  { title: "Produtos", url: "/produtos", icon: Package },
-  { title: "Clientes", url: "/clientes", icon: Users },
-  { title: "CRM", url: "/crm", icon: MessageSquare },
-  { title: "Carrinhos", url: "/carrinhos-abandonados", icon: ShoppingCart },
+  { title: "Dashboard", url: "/", icon: LayoutDashboard, pageKey: "dashboard" },
+  { title: "Pedidos", url: "/pedidos", icon: ShoppingBag, pageKey: "pedidos" },
+  { title: "Produção", url: "/producao", icon: Factory, pageKey: "producao" },
+  { title: "Produtos", url: "/produtos", icon: Package, pageKey: "produtos" },
+  { title: "Clientes", url: "/clientes", icon: Users, pageKey: "clientes" },
+  { title: "CRM", url: "/crm", icon: MessageSquare, pageKey: "crm" },
+  { title: "Carrinhos", url: "/carrinhos-abandonados", icon: ShoppingCart, pageKey: "carrinhos" },
 ];
 
 const financeItems = [
-  { title: "Financeiro", url: "/financeiro", icon: DollarSign },
-  { title: "Relatórios", url: "/relatorios", icon: BarChart3 },
+  { title: "Financeiro", url: "/financeiro", icon: DollarSign, pageKey: "financeiro" },
+  { title: "Relatórios", url: "/relatorios", icon: BarChart3, pageKey: "relatorios" },
   { title: "Vendedores", url: "/vendedores", icon: UserCog, adminOnly: true },
+  { title: "Usuários", url: "/usuarios", icon: Users, adminOnly: true },
   { title: "Sistema", url: "/sistema", icon: Settings, adminOnly: true },
 ];
 
@@ -53,13 +54,14 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const currentPath = location.pathname;
-  const { isAdmin, user, signOut } = useAuth();
+  const { isAdmin, user, signOut, canAccess } = useAuth();
 
   const isActive = (path: string) =>
     path === "/" ? currentPath === "/" : currentPath.startsWith(path);
 
+  const visibleMainItems = mainItems.filter((item) => canAccess(item.pageKey));
   const visibleFinanceItems = financeItems.filter(
-    (item) => !item.adminOnly || isAdmin
+    (item) => (item.adminOnly ? isAdmin : canAccess(item.pageKey!))
   );
 
   return (
@@ -76,7 +78,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Principal</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainItems.map((item) => (
+              {visibleMainItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
                     <NavLink to={item.url} end={item.url === "/"}>

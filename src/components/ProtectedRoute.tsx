@@ -4,10 +4,11 @@ import { useAuth } from "@/hooks/useAuth";
 interface ProtectedRouteProps {
   children: React.ReactNode;
   adminOnly?: boolean;
+  pageKey?: string;
 }
 
-export function ProtectedRoute({ children, adminOnly = false }: ProtectedRouteProps) {
-  const { user, role, loading } = useAuth();
+export function ProtectedRoute({ children, adminOnly = false, pageKey }: ProtectedRouteProps) {
+  const { user, role, loading, canAccess } = useAuth();
 
   if (loading) {
     return (
@@ -22,6 +23,10 @@ export function ProtectedRoute({ children, adminOnly = false }: ProtectedRoutePr
   }
 
   if (adminOnly && role !== "admin") {
+    return <Navigate to="/" replace />;
+  }
+
+  if (pageKey && !canAccess(pageKey)) {
     return <Navigate to="/" replace />;
   }
 
