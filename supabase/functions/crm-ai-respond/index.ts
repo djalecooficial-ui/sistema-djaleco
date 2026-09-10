@@ -216,7 +216,10 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
         .from("crm_contacts")
         .update({
           ai_enabled: false,
-          status: contato.status === "resolvido" ? contato.status : "aguardando",
+          // "aguardando_cliente" é a coluna real do quadro WhatsApp — "aguardando"
+          // (valor antigo) não existe em nenhuma coluna e deixava o contato
+          // invisível no Kanban.
+          status: contato.status === "resolvido" ? contato.status : "aguardando_cliente",
           ai_suggestion: null,
           ai_suggestion_at: new Date().toISOString(),
         })

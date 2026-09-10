@@ -33,6 +33,33 @@ interface ItemForm {
   cor: string;
   preco_unitario: number;
   _product?: NuvemProduct;
+  _confianca?: "alta" | "media" | "baixa";
+}
+
+interface AiParseItem {
+  produto_id: number | null;
+  produto_nome: string;
+  quantidade: number | null;
+  tamanho: string | null;
+  cor: string | null;
+  personalizacao: string | null;
+  confianca: "alta" | "media" | "baixa";
+}
+
+interface AiParseResult {
+  cliente_nome: string | null;
+  telefones: string[] | null;
+  email: string | null;
+  profissao: string | null;
+  endereco: string | null;
+  numero: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  estado: string | null;
+  cep: string | null;
+  documento: string | null;
+  itens: AiParseItem[] | null;
+  observacoes_gerais: string | null;
 }
 
 function normalize(s: string) {
@@ -160,6 +187,7 @@ export default function NovoPedido() {
   const [parcelas, setParcelas] = useState("1");
   const [itens, setItens] = useState<ItemForm[]>([{ nome_produto: "", quantidade: 1, tamanho: "", cor: "", preco_unitario: 0 }]);
   const [saving, setSaving] = useState(false);
+  const [parsing, setParsing] = useState(false);
   const [openCombobox, setOpenCombobox] = useState<number | null>(null);
 
   // Auto-calculate valor bruto from items
@@ -170,11 +198,8 @@ export default function NovoPedido() {
   // Sync valor bruto when not manually edited
   const displayValorBruto = valorBrutoManual ? valorBruto : (valorCalculado > 0 ? valorCalculado.toFixed(2) : valorBruto);
 
-  const handleParse = () => {
-    if (!whatsappText.trim()) {
-      toast.error("Cole o texto do WhatsApp primeiro");
-      return;
-    }
+  // Método simples (regex, sem IA) — usado como reserva se a IA falhar.
+  const handleParseFallback = () => {
     const parsed = parseWhatsApp(whatsappText);
     if (parsed.cliente_nome) setClienteNome(parsed.cliente_nome);
     if (parsed.cliente_telefone) setClienteTelefone(parsed.cliente_telefone);
@@ -202,7 +227,73 @@ export default function NovoPedido() {
       setValorBrutoManual(true);
     }
     if (parsed.frete) setFrete(parsed.frete.replace(/[^\d.,]/g, "").replace(",", "."));
-    toast.success("Dados preenchidos a partir do WhatsApp!");
+  };
+
+  // Usa IA pra ler o texto colado por inteiro (campos + descrição livre dos
+  // produtos) e sugerir os itens já casados com o catálogo — o atendente só
+  // confirma ou ajusta. Se a IA falhar, cai no método simples de antes.
+  const handleParse = async () => {
+    if (!whatsappText.trim()) {
+      toast.error("Cole o texto do WhatsApp primeiro");
+      return;
+    }
+    setParsing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("parse-pedido-ai", {
+        body: { text: whatsappText, products },
+      });
+      if (error || (data as any)?.error) {
+        throw new Error((data as any)?.error || error?.message || "Falha ao processar com IA");
+      }
+
+      const result = data as AiParseResult;
+      if (result.cliente_nome) setClienteNome(result.cliente_nome);
+      if (result.telefones?.[0]) setClienteTelefone(maskPhone(result.telefones[0]));
+      if (result.endereco) setEndereco(result.numero ? `${result.endereco}, ${result.numero}` : result.endereco);
+      if (result.bairro) setBairro(result.bairro);
+      if (result.cidade) setCidade(result.cidade);
+      if (result.estado) setEstado(result.estado);
+      if (result.cep) setCep(result.cep);
+      if (result.documento) setDocumento(maskCpfCnpj(result.documento));
+
+      const extras: string[] = [];
+      if (result.telefones && result.telefones.length > 1) {
+        extras.push(`Telefone alternativo: ${result.telefones.slice(1).join(", ")}`);
+      }
+      if (result.email) extras.push(`E-mail: ${result.email}`);
+      if (result.profissao) extras.push(`Profissão: ${result.profissao}`);
+      for (const item of result.itens || []) {
+        if (item.personalizacao) extras.push(`${item.produto_nome}: ${item.personalizacao}`);
+      }
+      if (result.observacoes_gerais) extras.push(result.observacoes_gerais);
+      if (extras.length) {
+        setObservacoes((prev) => (prev ? `${prev}\n${extras.join("\n")}` : extras.join("\n")));
+      }
+
+      if (result.itens?.length) {
+        const novosItens: ItemForm[] = result.itens.map((item) => {
+          const produto = item.produto_id != null ? products.find((p) => p.id === item.produto_id) : undefined;
+          return {
+            nome_produto: produto?.name || item.produto_nome || "",
+            quantidade: item.quantidade || 1,
+            tamanho: item.tamanho || "",
+            cor: item.cor || "",
+            preco_unitario: produto?.price || 0,
+            _product: produto,
+            _confianca: item.confianca,
+          };
+        });
+        setItens(novosItens);
+      }
+
+      toast.success("Pedido preenchido pela IA — confira os itens sugeridos antes de salvar!");
+    } catch (e: any) {
+      console.error("[handleParse] IA indisponível, usando método simples:", e);
+      handleParseFallback();
+      toast.warning("IA indisponível agora — preenchi com o método simples, confira os dados.");
+    } finally {
+      setParsing(false);
+    }
   };
 
   const handleAddItem = () => {
@@ -294,9 +385,9 @@ export default function NovoPedido() {
             value={whatsappText}
             onChange={(e) => setWhatsappText(e.target.value)}
           />
-          <Button variant="outline" size="sm" onClick={handleParse}>
+          <Button variant="outline" size="sm" onClick={handleParse} disabled={parsing}>
             <ClipboardPaste className="h-4 w-4 mr-2" />
-            Preencher formulário
+            {parsing ? "Analisando com IA..." : "Preencher formulário"}
           </Button>
         </Card>
 
@@ -462,6 +553,9 @@ export default function NovoPedido() {
                       </Command>
                     </PopoverContent>
                   </Popover>
+                  {item._confianca && item._confianca !== "alta" && (
+                    <p className="text-xs text-amber-600">Sugestão da IA com pouca certeza — confira produto, tamanho e cor</p>
+                  )}
                 </div>
 
                 {/* Qty + Size + Color + Price row */}
