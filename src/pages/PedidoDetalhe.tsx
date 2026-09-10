@@ -135,6 +135,12 @@ export default function PedidoDetalhe() {
               <dl className="grid grid-cols-2 gap-4 text-sm">
                 <div><dt className="text-muted-foreground">Cliente</dt><dd className="font-medium">{pedido.cliente_nome}</dd></div>
                 <div><dt className="text-muted-foreground">Telefone</dt><dd>{pedido.cliente_telefone || "—"}</dd></div>
+                {(pedido as any).cliente_email && (
+                  <div><dt className="text-muted-foreground">E-mail</dt><dd>{(pedido as any).cliente_email}</dd></div>
+                )}
+                {(pedido as any).cliente_profissao && (
+                  <div><dt className="text-muted-foreground">Profissão</dt><dd>{(pedido as any).cliente_profissao}</dd></div>
+                )}
                 <div><dt className="text-muted-foreground">Cidade/Estado</dt><dd>{[pedido.cidade, pedido.estado].filter(Boolean).join("/") || "—"}</dd></div>
                 <div><dt className="text-muted-foreground">Origem</dt><dd><Badge variant="outline">{pedido.origem}</Badge></dd></div>
                 <div><dt className="text-muted-foreground">Data do Pedido</dt><dd>{format(new Date(pedido.data_pedido), "dd/MM/yyyy")}</dd></div>

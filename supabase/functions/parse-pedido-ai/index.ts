@@ -69,8 +69,9 @@ Regras:
 - Se não houver quantidade explícita pra um item, use 1.
 - "personalizacao" é qualquer detalhe de customização (bordado, texto, posição, gravação, iniciais) que não seja cor nem tamanho do produto em si.
 - "confianca" reflete o quanto você tem certeza do produto_id escolhido — "baixa" se ficou em dúvida entre produtos parecidos ou o nome não bate bem com nada do catálogo.
+- Se "estado" não vier explícito no texto mas a cidade for inequívoca (ex: São Paulo = SP, Rio de Janeiro = RJ, Belo Horizonte = MG, capitais e grandes cidades conhecidas), preencha o estado (sigla de 2 letras) mesmo assim. Se o nome da cidade for ambíguo entre estados diferentes, deixe null.
 - Junte qualquer instrução solta que não caiba nos campos acima em "observacoes_gerais".
-- Nunca invente dado que não está no texto — use null quando não houver informação.`;
+- Nunca invente dado que não está no texto (nome, telefone, endereço, produto, etc.) — use null quando não houver informação. A única exceção é o estado inferido pela cidade, conforme a regra acima.`;
 
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",

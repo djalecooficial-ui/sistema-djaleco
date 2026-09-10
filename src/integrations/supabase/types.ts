@@ -424,7 +424,9 @@ export type Database = {
           bairro: string | null
           cep: string | null
           cidade: string | null
+          cliente_email: string | null
           cliente_nome: string
+          cliente_profissao: string | null
           cliente_telefone: string | null
           comissao: number
           comissao_paga: boolean
@@ -461,7 +463,9 @@ export type Database = {
           bairro?: string | null
           cep?: string | null
           cidade?: string | null
+          cliente_email?: string | null
           cliente_nome?: string
+          cliente_profissao?: string | null
           cliente_telefone?: string | null
           comissao?: number
           comissao_paga?: boolean
@@ -498,7 +502,9 @@ export type Database = {
           bairro?: string | null
           cep?: string | null
           cidade?: string | null
+          cliente_email?: string | null
           cliente_nome?: string
+          cliente_profissao?: string | null
           cliente_telefone?: string | null
           comissao?: number
           comissao_paga?: boolean

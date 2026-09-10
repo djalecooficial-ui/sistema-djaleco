@@ -70,6 +70,7 @@ function matchLabel(label: string): string | null {
   const n = normalize(label);
   if (/^(NOME|NOME COMPLETO|CLIENTE)$/.test(n)) return "cliente_nome";
   if (/^(CELULAR|TELEFONE|WHATSAPP|CONTATO|TEL|FONE|NUMERO|NUMERO DE CONTATO)$/.test(n)) return "cliente_telefone";
+  if (/^EMAIL$/.test(n)) return "cliente_email";
   if (/ENDERECO|RUA|LOGRADOURO/.test(n)) return "endereco";
   if (/^BAIRRO$/.test(n)) return "bairro";
   if (/^CIDADE$/.test(n)) return "cidade";
@@ -172,6 +173,8 @@ export default function NovoPedido() {
   const [whatsappText, setWhatsappText] = useState("");
   const [clienteNome, setClienteNome] = useState("");
   const [clienteTelefone, setClienteTelefone] = useState("");
+  const [clienteEmail, setClienteEmail] = useState("");
+  const [clienteProfissao, setClienteProfissao] = useState("");
   const [endereco, setEndereco] = useState("");
   const [bairro, setBairro] = useState("");
   const [cidade, setCidade] = useState("");
@@ -203,6 +206,8 @@ export default function NovoPedido() {
     const parsed = parseWhatsApp(whatsappText);
     if (parsed.cliente_nome) setClienteNome(parsed.cliente_nome);
     if (parsed.cliente_telefone) setClienteTelefone(parsed.cliente_telefone);
+    if (parsed.cliente_email) setClienteEmail(parsed.cliente_email);
+    if (parsed.profissao) setClienteProfissao(parsed.profissao);
     if (parsed.endereco) setEndereco(parsed.endereco);
     if (parsed.bairro) setBairro(parsed.bairro);
     if (parsed.cidade) setCidade(parsed.cidade);
@@ -249,6 +254,8 @@ export default function NovoPedido() {
       const result = data as AiParseResult;
       if (result.cliente_nome) setClienteNome(result.cliente_nome);
       if (result.telefones?.[0]) setClienteTelefone(maskPhone(result.telefones[0]));
+      if (result.email) setClienteEmail(result.email);
+      if (result.profissao) setClienteProfissao(result.profissao);
       if (result.endereco) setEndereco(result.numero ? `${result.endereco}, ${result.numero}` : result.endereco);
       if (result.bairro) setBairro(result.bairro);
       if (result.cidade) setCidade(result.cidade);
@@ -256,12 +263,13 @@ export default function NovoPedido() {
       if (result.cep) setCep(result.cep);
       if (result.documento) setDocumento(maskCpfCnpj(result.documento));
 
+      // Observações guarda só o que não tem campo próprio: telefone
+      // alternativo, personalização de cada item (bordado, texto, posição)
+      // e qualquer outra instrução solta.
       const extras: string[] = [];
       if (result.telefones && result.telefones.length > 1) {
         extras.push(`Telefone alternativo: ${result.telefones.slice(1).join(", ")}`);
       }
-      if (result.email) extras.push(`E-mail: ${result.email}`);
-      if (result.profissao) extras.push(`Profissão: ${result.profissao}`);
       for (const item of result.itens || []) {
         if (item.personalizacao) extras.push(`${item.produto_nome}: ${item.personalizacao}`);
       }
@@ -334,6 +342,8 @@ export default function NovoPedido() {
         numero_pedido: numeroPedido,
         cliente_nome: clienteNome.trim(),
         cliente_telefone: clienteTelefone.trim() || null,
+        cliente_email: clienteEmail.trim() || null,
+        cliente_profissao: clienteProfissao.trim() || null,
         endereco: endereco.trim() || null,
         bairro: bairro.trim() || null,
         cidade: cidade.trim() || null,
@@ -403,6 +413,14 @@ export default function NovoPedido() {
             <div className="space-y-1.5">
               <Label htmlFor="clienteTelefone">Celular</Label>
               <Input id="clienteTelefone" value={clienteTelefone} onChange={(e) => setClienteTelefone(maskPhone(e.target.value))} placeholder="(11) 99999-9999" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="clienteEmail">E-mail</Label>
+              <Input id="clienteEmail" type="email" value={clienteEmail} onChange={(e) => setClienteEmail(e.target.value)} placeholder="cliente@email.com" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="clienteProfissao">Profissão</Label>
+              <Input id="clienteProfissao" value={clienteProfissao} onChange={(e) => setClienteProfissao(e.target.value)} />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="endereco">Endereço Completo</Label>
