@@ -296,6 +296,12 @@ Deno.serve(async (req) => {
     // Pedidos que viraram pagos nesta sincronização — dispara a mesma
     // automação de sugestão de mensagem que o webhook em tempo real dispara.
     const pagosNestaSincronizacao: { telefone: string; nome: string; numero: string; valor: number }[] = [];
+    // Telefones tocados nesta sincronização — ao final, recalcula
+    // total_pedidos/total_gasto/primeira_compra/ultima_compra desses
+    // clientes. Diferente do webhook em tempo real, o sync nunca fazia
+    // esse recálculo, deixando clientes importados em lote com os totais
+    // zerados pra sempre.
+    const telefonesTocados = new Set<string>();
 
     for (let i = 0; i < allOrders.length; i++) {
       const order = allOrders[i];
@@ -314,6 +320,7 @@ Deno.serve(async (req) => {
       const statusPagamento = order.payment_status === "paid" ? "recebido" : "pendente";
 
       const existing = pedidoMap.get(order.id);
+      if (customerPhone) telefonesTocados.add(customerPhone);
 
       if (existing) {
         // UPDATE: Only update non-financial fields. Preserve taxa_pagarme, taxa_ted, comissao, valor_liquido
@@ -413,6 +420,26 @@ Deno.serve(async (req) => {
       await prepararSugestaoPagamentoConfirmado(supabase, pago.telefone, pago.nome, pago.numero, pago.valor);
     }
 
+    // Recalcula os totais dos clientes cujo telefone apareceu nesta
+    // sincronização, casando por telefone (mais confiável que nome).
+    let clientesAtualizados = 0;
+    for (const telefone of telefonesTocados) {
+      const { data: cliente } = await supabase.from("clientes").select("id").eq("telefone", telefone).maybeSingle();
+      if (!cliente) continue;
+      const { data: pedidosCliente } = await supabase
+        .from("pedidos").select("valor_bruto, data_pedido").eq("cliente_telefone", telefone);
+      if (!pedidosCliente) continue;
+      const totalGasto = pedidosCliente.reduce((s, p) => s + Number(p.valor_bruto), 0);
+      const datas = pedidosCliente.map((p) => p.data_pedido).sort();
+      await supabase.from("clientes").update({
+        total_pedidos: pedidosCliente.length,
+        total_gasto: totalGasto,
+        primeira_compra: datas[0] || null,
+        ultima_compra: datas[datas.length - 1] || null,
+      }).eq("id", cliente.id);
+      clientesAtualizados++;
+    }
+
     // Insert items only for NEW orders
     const allItems: any[] = [];
     const newPedidoIds = new Set<string>();
@@ -444,6 +471,7 @@ Deno.serve(async (req) => {
         new_orders: toInsert.length,
         updated_orders: toUpdate.length,
         clients_created: syncedClientes,
+        clients_totals_updated: clientesAtualizados,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

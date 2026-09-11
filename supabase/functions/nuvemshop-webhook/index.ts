@@ -284,10 +284,14 @@ Deno.serve(async (req) => {
       await supabase.from("pedido_itens").insert(items);
     }
 
-    // Update cliente totals
+    // Update cliente totals — casa por telefone (mais confiável que nome,
+    // que varia maiúscula/minúscula e acentos entre pedidos da mesma pessoa).
+    // Só cai pra nome se o pedido não tiver telefone.
     if (clienteId) {
+      const matchField = customerPhone ? "cliente_telefone" : "cliente_nome";
+      const matchValue = customerPhone || customerName;
       const { data: pedidosCliente } = await supabase
-        .from("pedidos").select("valor_bruto, data_pedido").eq("cliente_nome", customerName);
+        .from("pedidos").select("valor_bruto, data_pedido").eq(matchField, matchValue);
       if (pedidosCliente) {
         const totalGasto = pedidosCliente.reduce((s, p) => s + Number(p.valor_bruto), 0);
         const datas = pedidosCliente.map(p => p.data_pedido).sort();
