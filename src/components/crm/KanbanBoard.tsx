@@ -104,6 +104,11 @@ type Contato = {
 function ContactCard({ c, onClick }: { c: Contato; onClick: () => void }) {
   const unread = (c.unread_count ?? 0) > 0;
   const pagamentoConfirmado = !!c.pedido_confirmado_at;
+  // Número do pedido pendente vem direto da tag (ex: "Pagamento Pendente
+  // #628") em vez do campo pedido_numero — esse campo é compartilhado com
+  // o pedido confirmado, e reaproveitar geraria número errado se o
+  // contato tiver um pedido confirmado antigo e outro pendente mais novo.
+  const tagPendente = (c.tags ?? []).find((t) => t.startsWith("Pagamento Pendente #"));
   const lastDate = c.last_message_at ?? c.updated_at ?? c.created_at;
   const displayName = c.nome || c.push_name || c.telefone || "—";
   const initials = (displayName || "?")
@@ -118,6 +123,8 @@ function ContactCard({ c, onClick }: { c: Contato; onClick: () => void }) {
       className={`p-3 cursor-pointer hover:shadow-md transition-all space-y-2 ${
         pagamentoConfirmado
           ? "border-blue-500/60 bg-blue-50 dark:bg-blue-950/30 ring-1 ring-blue-500/30"
+          : tagPendente
+          ? "border-orange-500/60 bg-orange-50 dark:bg-orange-950/30 ring-1 ring-orange-500/30"
           : unread
           ? "border-green-500/60 bg-green-50 dark:bg-green-950/30 ring-1 ring-green-500/30"
           : "hover:border-primary/40"
@@ -130,6 +137,12 @@ function ContactCard({ c, onClick }: { c: Contato; onClick: () => void }) {
           {typeof c.pedido_valor === "number" && (
             <span> · {c.pedido_valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
           )}
+        </div>
+      )}
+      {!pagamentoConfirmado && tagPendente && (
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-orange-700 dark:text-orange-400">
+          <Banknote className="h-3.5 w-3.5" />
+          Pagamento pendente · {tagPendente.replace("Pagamento Pendente ", "Pedido ")}
         </div>
       )}
       <div className="flex items-start justify-between gap-2">
