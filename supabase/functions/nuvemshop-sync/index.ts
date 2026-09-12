@@ -117,15 +117,22 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Auth check
+    // Auth check — aceita ou um usuário logado (botão "Sincronizar" na
+    // tela) ou o segredo do cron automático (CRON_SECRET), sem precisar
+    // de uma sessão de usuário real pra rodar sozinho a cada 15 min.
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    const authClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
-    const { data: { user }, error: userError } = await authClient.auth.getUser();
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const token = authHeader.slice(7);
+    const cronSecret = Deno.env.get("CRON_SECRET");
+    const isCron = !!cronSecret && token === cronSecret;
+    if (!isCron) {
+      const authClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
+      const { data: { user }, error: userError } = await authClient.auth.getUser();
+      if (userError || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
     const NUVEMSHOP_ACCESS_TOKEN = Deno.env.get("NUVEMSHOP_ACCESS_TOKEN");
@@ -192,6 +199,10 @@ Deno.serve(async (req) => {
       );
       if (!res.ok) {
         const body = await res.text();
+        // A Nuvemshop responde 404 "Last page is 0" (em vez de 200 com lista
+        // vazia) quando não há nenhum pedido pra essa consulta — comum numa
+        // sincronização automática frequente, sem nada novo desde a última.
+        if (res.status === 404 && /last page is 0/i.test(body)) break;
         throw new Error(`Nuvemshop orders API error [${res.status}]: ${body}`);
       }
       const orders = await res.json();
