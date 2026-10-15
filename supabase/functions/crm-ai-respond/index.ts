@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
 
     const { data: contato, error: contatoErr } = await supabase
       .from("crm_contacts")
-      .select("id, nome, telefone, ai_enabled, status, ai_suggestion")
+      .select("id, nome, telefone, ai_enabled, ai_auto_send, status, ai_suggestion")
       .eq("id", contact_id)
       .maybeSingle();
     if (contatoErr || !contato) {
@@ -235,6 +235,49 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
     if (mensagens.length === 0) {
       return new Response(JSON.stringify({ error: "IA não retornou mensagens" }), {
         status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Modo teste: só para contatos com ai_auto_send=true (ligado manualmente
+    // por um admin, número a número), a IA responde E ENVIA sozinha pelo
+    // WhatsApp, sem aprovação humana. Para todo o resto da base, continua
+    // sendo sempre modo sugestão — nada sai sem aprovação.
+    if (contato.ai_auto_send) {
+      const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
+      const instance = Deno.env.get("EVOLUTION_CRM_INSTANCE");
+      const apiKey = Deno.env.get("EVOLUTION_CRM_API_KEY");
+      if (!evolutionUrl || !instance || !apiKey) {
+        throw new Error("Variáveis do Evolution API não configuradas");
+      }
+      const baseUrl = evolutionUrl.replace(/\/$/, "");
+      const number = String(contato.telefone).replace(/\D/g, "");
+
+      for (let i = 0; i < mensagens.length; i++) {
+        const texto = mensagens[i];
+        const sendResp = await fetch(`${baseUrl}/message/sendText/${instance}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: apiKey },
+          body: JSON.stringify({ number, text: texto }),
+        });
+        const sendResult = await sendResp.json().catch(() => ({}));
+        const evolutionMessageId = sendResult?.key?.id || sendResult?.messageId || sendResult?.id || null;
+
+        await supabase.from("crm_messages").insert({
+          contact_id,
+          conteudo: texto,
+          direcao: "enviada",
+          is_ai_generated: true,
+          ...(evolutionMessageId ? { evolution_message_id: evolutionMessageId } : {}),
+        });
+
+        if (i < mensagens.length - 1) {
+          await new Promise((r) => setTimeout(r, 1200 + Math.random() * 900));
+        }
+      }
+
+      return new Response(JSON.stringify({ action: "auto_sent", messages: mensagens }), {
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

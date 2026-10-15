@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { PedidoQuickViewDialog } from "@/components/crm/PedidoQuickViewDialog";
 import { useContactCustomerInfo } from "@/hooks/useContactCustomerInfo";
+import { useAuth } from "@/hooks/useAuth";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -67,6 +68,7 @@ import {
   Sparkles,
   Paperclip,
   Banknote,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -112,8 +114,10 @@ export default function CRMContato() {
   const { id } = useParams<{ id: string }>();
   const contactId = id ? String(id) : undefined;
   const qc = useQueryClient();
+  const { isAdmin } = useAuth();
 
   const [notas, setNotas] = useState("");
+  const [confirmAutoSendOpen, setConfirmAutoSendOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [pedidosOpen, setPedidosOpen] = useState(true);
@@ -163,7 +167,7 @@ export default function CRMContato() {
 
   const updateContact = useMutation({
     mutationFn: async (
-      patch: Partial<{ nome: string; status: string; notas: string; ai_enabled: boolean }>,
+      patch: Partial<{ nome: string; status: string; notas: string; ai_enabled: boolean; ai_auto_send: boolean }>,
     ) => {
       const { error } = await supabase
         .from("crm_contacts")
@@ -1252,6 +1256,34 @@ export default function CRMContato() {
                 }
               />
             </div>
+            {isAdmin && (
+              <div
+                className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 ${
+                  (contato as any).ai_auto_send ? "border-destructive/50 bg-destructive/5" : ""
+                }`}
+              >
+                <Zap
+                  className={`h-3.5 w-3.5 ${(contato as any).ai_auto_send ? "text-destructive" : "text-muted-foreground"}`}
+                />
+                <label htmlFor="ai-autosend-toggle" className="text-xs font-medium cursor-pointer select-none">
+                  Atendimento automático (teste)
+                </label>
+                <Switch
+                  id="ai-autosend-toggle"
+                  checked={(contato as any).ai_auto_send ?? false}
+                  onCheckedChange={(v) => {
+                    if (v) {
+                      setConfirmAutoSendOpen(true);
+                    } else {
+                      updateContact.mutate(
+                        { ai_auto_send: false },
+                        { onSuccess: () => toast.success("Atendimento automático desligado — voltou ao modo sugestão") },
+                      );
+                    }
+                  }}
+                />
+              </div>
+            )}
           </div>
         </header>
 
@@ -1727,6 +1759,37 @@ export default function CRMContato() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Apagar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmAutoSendOpen} onOpenChange={setConfirmAutoSendOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ligar atendimento 100% automático?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A partir de agora, a Sofia vai responder e <strong>enviar as mensagens sozinha</strong> pra
+              esse contato, sem você aprovar antes. Isso é diferente do resto do sistema, onde toda
+              resposta da IA fica como sugestão esperando aprovação. Use só em números de teste — você
+              pode desligar a qualquer momento nesse mesmo switch.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                updateContact.mutate(
+                  { ai_auto_send: true },
+                  {
+                    onSuccess: () =>
+                      toast.success("Atendimento automático ligado — a IA vai enviar sozinha pra este contato"),
+                  },
+                )
+              }
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Ligar mesmo assim
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

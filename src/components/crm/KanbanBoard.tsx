@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Phone, Bot, Sparkles, Banknote } from "lucide-react";
+import { Plus, Phone, Bot, Sparkles, Banknote, Zap } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -94,6 +94,7 @@ type Contato = {
   push_name?: string | null;
   is_customer?: boolean;
   ai_enabled?: boolean | null;
+  ai_auto_send?: boolean | null;
   ai_suggestion?: unknown;
   pedido_confirmado_at?: string | null;
   pedido_numero?: string | null;
@@ -187,6 +188,11 @@ function ContactCard({ c, onClick }: { c: Contato; onClick: () => void }) {
           {c.ai_enabled === false && (
             <Badge variant="outline" className="text-[10px] h-4 px-1 bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30">
               <Bot className="h-2.5 w-2.5 mr-0.5" /> aguarda humano
+            </Badge>
+          )}
+          {c.ai_auto_send && (
+            <Badge variant="outline" className="text-[10px] h-4 px-1 bg-destructive/15 text-destructive border-destructive/30">
+              <Zap className="h-2.5 w-2.5 mr-0.5" /> auto (teste)
             </Badge>
           )}
         </div>
