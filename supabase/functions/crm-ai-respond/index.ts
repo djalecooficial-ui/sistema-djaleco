@@ -285,7 +285,13 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
       await supabase
         .from("crm_contacts")
         .update({
-          ai_enabled: false,
+          // Em contatos reais (modo sugestão), escalar sempre passa a
+          // conversa pra um humano de verdade — a IA fica pausada até
+          // alguém religar manualmente. Nos números de teste com modo
+          // automático ligado, a IA continua tentando responder as
+          // próximas mensagens, pra não travar o teste a cada pergunta
+          // que ela não sabe responder.
+          ai_enabled: contato.ai_auto_send ? true : false,
           // "aguardando_cliente" é a coluna real do quadro WhatsApp — "aguardando"
           // (valor antigo) não existe em nenhuma coluna e deixava o contato
           // invisível no Kanban.
