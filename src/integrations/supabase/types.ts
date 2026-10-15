@@ -121,6 +121,7 @@ export type Database = {
           ai_auto_send: boolean
           ai_enabled: boolean
           ai_suggestion: Json | null
+          ai_suggestion_anexo_id: string | null
           ai_suggestion_at: string | null
           avatar_url: string | null
           created_at: string | null
@@ -146,6 +147,7 @@ export type Database = {
           ai_auto_send?: boolean
           ai_enabled?: boolean
           ai_suggestion?: Json | null
+          ai_suggestion_anexo_id?: string | null
           ai_suggestion_at?: string | null
           avatar_url?: string | null
           created_at?: string | null
@@ -171,6 +173,7 @@ export type Database = {
           ai_auto_send?: boolean
           ai_enabled?: boolean
           ai_suggestion?: Json | null
+          ai_suggestion_anexo_id?: string | null
           ai_suggestion_at?: string | null
           avatar_url?: string | null
           created_at?: string | null

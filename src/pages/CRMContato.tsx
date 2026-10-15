@@ -456,6 +456,21 @@ export default function CRMContato() {
     },
     enabled: attachOpen,
   });
+
+  const suggestionAnexoId = (contato as any)?.ai_suggestion_anexo_id as string | null | undefined;
+  const { data: suggestionAnexo } = useQuery({
+    queryKey: ["crm_suggestion_anexo", suggestionAnexoId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_attachments")
+        .select("*")
+        .eq("id", suggestionAnexoId!)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!suggestionAnexoId,
+  });
   const [saveFeedbackAsRule, setSaveFeedbackAsRule] = useState(false);
 
   const pickAudioMime = () => {
@@ -691,7 +706,8 @@ export default function CRMContato() {
       if (action === "escalate") {
         toast.info("A IA avaliou que essa conversa precisa de um atendente humano");
       } else if (action === "reply") {
-        toast.success("Sugestão pronta");
+        const anexo = (data as any)?.anexo;
+        toast.success(anexo ? `Sugestão pronta (com anexo: ${anexo})` : "Sugestão pronta");
       }
       qc.invalidateQueries({ queryKey: ["crm_contact", contactId] });
     } catch (e: any) {
@@ -705,7 +721,7 @@ export default function CRMContato() {
     setDraft(mensagens.join("\n\n"));
     supabase
       .from("crm_contacts")
-      .update({ ai_suggestion: null })
+      .update({ ai_suggestion: null, ai_suggestion_anexo_id: null })
       .eq("id", contactId!)
       .then(() => qc.invalidateQueries({ queryKey: ["crm_contact", contactId] }));
   };
@@ -713,7 +729,7 @@ export default function CRMContato() {
   const handleDiscardSuggestion = () => {
     supabase
       .from("crm_contacts")
-      .update({ ai_suggestion: null })
+      .update({ ai_suggestion: null, ai_suggestion_anexo_id: null })
       .eq("id", contactId!)
       .then(() => qc.invalidateQueries({ queryKey: ["crm_contact", contactId] }));
     setSuggestionFeedback("");
@@ -748,11 +764,24 @@ export default function CRMContato() {
           : await supabase.from("crm_messages").insert(insertPayload);
         if (insertError) throw insertError;
 
-        if (i < mensagens.length - 1) {
+        if (i < mensagens.length - 1 || suggestionAnexo) {
           await sleep(1200 + Math.random() * 900);
         }
       }
-      const patch: Record<string, unknown> = { ai_suggestion: null };
+
+      if (suggestionAnexo) {
+        await sendAnexo(
+          {
+            id: suggestionAnexo.id,
+            file_url: suggestionAnexo.file_url,
+            file_name: suggestionAnexo.file_name,
+            file_mime: suggestionAnexo.file_mime,
+          },
+          true,
+        );
+      }
+
+      const patch: Record<string, unknown> = { ai_suggestion: null, ai_suggestion_anexo_id: null };
       // Avança automaticamente pra "Confirmação Enviada" no quadro de
       // Pedidos do Site, quando ainda estava aguardando o envio.
       if (contato.origem === "site" && (contato as any).status === "aguardando_envio") {
@@ -802,6 +831,50 @@ export default function CRMContato() {
     }
   };
 
+  const sendAnexo = async (
+    anexo: { id: string; file_url: string; file_name: string; file_mime: string },
+    isAiGenerated = false,
+  ) => {
+    if (!contato) return;
+    const { data: sendResp, error: fnError } = await supabase.functions.invoke(
+      "evolution-send-message",
+      {
+        body: {
+          telefone: contato.telefone,
+          contact_id: contato.id,
+          media_url: anexo.file_url,
+          media_mime: anexo.file_mime,
+          media_filename: anexo.file_name,
+        },
+      },
+    );
+    if (fnError) throw fnError;
+    const evolutionMessageId = (sendResp as any)?.evolution_message_id ?? null;
+    const mediaType = anexo.file_mime.startsWith("image/")
+      ? "image"
+      : anexo.file_mime.startsWith("video/")
+      ? "video"
+      : "document";
+
+    const insertPayload: any = {
+      contact_id: contato.id,
+      conteudo: "",
+      direcao: "enviada",
+      is_ai_generated: isAiGenerated,
+      media_type: mediaType,
+      media_mime: anexo.file_mime,
+      media_url: anexo.file_url,
+      media_filename: anexo.file_name,
+      ...(evolutionMessageId ? { evolution_message_id: evolutionMessageId } : {}),
+    };
+    const { error: insertError } = evolutionMessageId
+      ? await supabase
+          .from("crm_messages")
+          .upsert(insertPayload, { onConflict: "evolution_message_id", ignoreDuplicates: true })
+      : await supabase.from("crm_messages").insert(insertPayload);
+    if (insertError) throw insertError;
+  };
+
   const handleSendAttachment = async (anexo: {
     id: string;
     file_url: string;
@@ -812,43 +885,7 @@ export default function CRMContato() {
     if (!contato || sendingAttachmentId) return;
     setSendingAttachmentId(anexo.id);
     try {
-      const { data: sendResp, error: fnError } = await supabase.functions.invoke(
-        "evolution-send-message",
-        {
-          body: {
-            telefone: contato.telefone,
-            contact_id: contato.id,
-            media_url: anexo.file_url,
-            media_mime: anexo.file_mime,
-            media_filename: anexo.file_name,
-          },
-        },
-      );
-      if (fnError) throw fnError;
-      const evolutionMessageId = (sendResp as any)?.evolution_message_id ?? null;
-      const mediaType = anexo.file_mime.startsWith("image/")
-        ? "image"
-        : anexo.file_mime.startsWith("video/")
-        ? "video"
-        : "document";
-
-      const insertPayload: any = {
-        contact_id: contato.id,
-        conteudo: "",
-        direcao: "enviada",
-        media_type: mediaType,
-        media_mime: anexo.file_mime,
-        media_url: anexo.file_url,
-        media_filename: anexo.file_name,
-        ...(evolutionMessageId ? { evolution_message_id: evolutionMessageId } : {}),
-      };
-      const { error: insertError } = evolutionMessageId
-        ? await supabase
-            .from("crm_messages")
-            .upsert(insertPayload, { onConflict: "evolution_message_id", ignoreDuplicates: true })
-        : await supabase.from("crm_messages").insert(insertPayload);
-      if (insertError) throw insertError;
-
+      await sendAnexo(anexo);
       toast.success("Anexo enviado");
       setAttachOpen(false);
     } catch (e: any) {
@@ -1522,6 +1559,15 @@ export default function CRMContato() {
                 </label>
               ))}
             </div>
+
+            {suggestionAnexo && (
+              <div className="flex items-center gap-2 text-sm bg-background rounded-md px-2.5 py-1.5 border">
+                <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="flex-1 truncate">
+                  Anexo: <span className="font-medium">{suggestionAnexo.titulo}</span>
+                </span>
+              </div>
+            )}
 
             <div className="space-y-1.5 pt-1 border-t border-primary/20">
               <Textarea

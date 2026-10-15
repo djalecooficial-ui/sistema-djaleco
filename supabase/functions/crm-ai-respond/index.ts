@@ -128,6 +128,14 @@ Deno.serve(async (req) => {
       .map((e) => `Cliente: ${e.pergunta_cliente}\nAtendente: ${e.resposta_humana}`)
       .join("\n\n");
 
+    const { data: anexosDisponiveis } = await supabase
+      .from("crm_attachments")
+      .select("id, titulo, categoria, file_url, file_mime, file_name");
+
+    const anexosTexto = (anexosDisponiveis ?? [])
+      .map((a) => `- id: ${a.id} | título: ${a.titulo}${a.categoria ? ` | categoria: ${a.categoria}` : ""}`)
+      .join("\n");
+
     const systemPrompt = `Você é Sofia, assistente virtual da Djaleco, atendendo clientes pelo WhatsApp.
 
 Seu papel: atender de forma acolhedora, clara e profissional — tirar dúvidas, apresentar produtos e ajudar o cliente a avançar na compra. Responda com objetividade, tom amigável e linguagem simples.
@@ -142,14 +150,18 @@ Regras obrigatórias:
 7. Se a mensagem do cliente for uma reclamação, envolver um pedido específico (rastreio, status de pagamento, problema com produto recebido) ou não estiver coberta pela base de conhecimento, você DEVE escalar para atendimento humano em vez de responder.
 8. Algumas mensagens do cliente podem incluir imagens anexadas junto com a transcrição da conversa — observe o conteúdo das imagens (foto de produto, print de comprovante, etc.) ao formular sua resposta.
 9. Abaixo, em "Exemplos de respostas do atendente", há conversas reais em que um atendente humano respondeu clientes. Use esses exemplos como referência de tom, vocabulário e jeito de escrever — imite o estilo real da equipe, não um tom genérico de robô. Nunca copie o conteúdo factual desses exemplos para outra pergunta, use-os só para aprender COMO escrever, não O QUE dizer.
+10. Se o cliente pedir catálogo, fotos de produtos, tabela de preços/tamanhos ou qualquer material parecido com algo da lista "Anexos disponíveis" abaixo, inclua o campo "anexo_id" na resposta com o id exato daquele anexo, e mencione nas mensagens que você está enviando o arquivo. Se nada da lista corresponder ao pedido, ou se o cliente não pediu nenhum material, deixe "anexo_id" como null. Nunca invente um id que não esteja na lista.
 
 Formato da resposta: divida sua resposta em mensagens curtas, como uma pessoa digitando naturalmente no WhatsApp (entre 1 e 5 mensagens, nunca um texto único e longo). Responda SEMPRE em JSON puro, sem markdown, em um dos dois formatos exatos:
 
-{"action": "reply", "messages": ["primeira mensagem", "segunda mensagem"]}
+{"action": "reply", "messages": ["primeira mensagem", "segunda mensagem"], "anexo_id": "id do anexo ou null"}
 ou
 {"action": "escalate", "reason": "motivo curto"}
 
 ${exemplosTexto ? `Exemplos de respostas do atendente (imite o estilo, não copie o conteúdo):\n${exemplosTexto}\n` : ""}
+Anexos disponíveis (arquivos que você pode anexar e enviar quando o cliente pedir):
+${anexosTexto || "(nenhum anexo cadastrado ainda)"}
+
 Base de conhecimento:
 ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
 
@@ -202,7 +214,7 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
     const ai = await aiResp.json();
     const raw = (ai?.choices?.[0]?.message?.content || "").trim();
 
-    let decision: { action: string; messages?: string[]; reason?: string };
+    let decision: { action: string; messages?: string[]; reason?: string; anexo_id?: string | null };
     try {
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       decision = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
@@ -221,6 +233,7 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
           // invisível no Kanban.
           status: contato.status === "resolvido" ? contato.status : "aguardando_cliente",
           ai_suggestion: null,
+          ai_suggestion_anexo_id: null,
           ai_suggestion_at: new Date().toISOString(),
         })
         .eq("id", contact_id);
@@ -238,6 +251,12 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Só aceita o anexo_id se ele realmente existir na lista que foi
+    // oferecida pra IA — nunca confia em um id "inventado" pela resposta.
+    const anexoSugerido = decision.anexo_id
+      ? (anexosDisponiveis ?? []).find((a) => a.id === decision.anexo_id) ?? null
+      : null;
 
     // Modo teste: só para contatos com ai_auto_send=true (ligado manualmente
     // por um admin, número a número), a IA responde E ENVIA sozinha pelo
@@ -271,12 +290,44 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
           ...(evolutionMessageId ? { evolution_message_id: evolutionMessageId } : {}),
         });
 
-        if (i < mensagens.length - 1) {
+        if (i < mensagens.length - 1 || anexoSugerido) {
           await new Promise((r) => setTimeout(r, 1200 + Math.random() * 900));
         }
       }
 
-      return new Response(JSON.stringify({ action: "auto_sent", messages: mensagens }), {
+      if (anexoSugerido) {
+        const mediaType = anexoSugerido.file_mime?.startsWith("image/")
+          ? "image"
+          : anexoSugerido.file_mime?.startsWith("video/")
+          ? "video"
+          : "document";
+        const mediaResp = await fetch(`${baseUrl}/message/sendMedia/${instance}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: apiKey },
+          body: JSON.stringify({
+            number,
+            mediatype: mediaType,
+            media: anexoSugerido.file_url,
+            fileName: anexoSugerido.file_name,
+          }),
+        });
+        const mediaResult = await mediaResp.json().catch(() => ({}));
+        const mediaEvolutionId = mediaResult?.key?.id || mediaResult?.messageId || mediaResult?.id || null;
+
+        await supabase.from("crm_messages").insert({
+          contact_id,
+          conteudo: "",
+          direcao: "enviada",
+          is_ai_generated: true,
+          media_type: mediaType,
+          media_mime: anexoSugerido.file_mime,
+          media_url: anexoSugerido.file_url,
+          media_filename: anexoSugerido.file_name,
+          ...(mediaEvolutionId ? { evolution_message_id: mediaEvolutionId } : {}),
+        });
+      }
+
+      return new Response(JSON.stringify({ action: "auto_sent", messages: mensagens, anexo: anexoSugerido?.titulo ?? null }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -286,10 +337,14 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
     // Nada é enviado ao WhatsApp automaticamente.
     await supabase
       .from("crm_contacts")
-      .update({ ai_suggestion: mensagens, ai_suggestion_at: new Date().toISOString() })
+      .update({
+        ai_suggestion: mensagens,
+        ai_suggestion_at: new Date().toISOString(),
+        ai_suggestion_anexo_id: anexoSugerido?.id ?? null,
+      })
       .eq("id", contact_id);
 
-    return new Response(JSON.stringify({ action: "reply", messages: mensagens }), {
+    return new Response(JSON.stringify({ action: "reply", messages: mensagens, anexo: anexoSugerido?.titulo ?? null }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
