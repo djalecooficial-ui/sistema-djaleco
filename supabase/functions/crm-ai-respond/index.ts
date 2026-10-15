@@ -18,6 +18,22 @@ function messageToText(m: any): string {
   return m.conteudo || "";
 }
 
+async function enviarTexto(
+  baseUrl: string,
+  instance: string,
+  apiKey: string,
+  number: string,
+  texto: string,
+): Promise<string | null> {
+  const resp = await fetch(`${baseUrl}/message/sendText/${instance}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: apiKey },
+    body: JSON.stringify({ number, text: texto }),
+  });
+  const result = await resp.json().catch(() => ({}));
+  return result?.key?.id || result?.messageId || result?.id || null;
+}
+
 async function transcreverAudio(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -86,6 +102,19 @@ Deno.serve(async (req) => {
       });
     }
 
+    const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
+    const instance = Deno.env.get("EVOLUTION_CRM_INSTANCE");
+    const apiKey = Deno.env.get("EVOLUTION_CRM_API_KEY");
+    const baseUrl = evolutionUrl?.replace(/\/$/, "") ?? "";
+    const numeroCliente = String(contato.telefone).replace(/\D/g, "");
+
+    const { data: staffSetting } = await supabase
+      .from("system_settings")
+      .select("value")
+      .eq("key", "staff_notificacao_telefone")
+      .maybeSingle();
+    const numeroStaff = staffSetting?.value ? String(staffSetting.value).replace(/\D/g, "") : null;
+
     const { data: historicoRaw } = await supabase
       .from("crm_messages")
       .select("id, direcao, conteudo, media_type, media_url, media_mime, caption, transcription, created_at")
@@ -147,7 +176,7 @@ Regras obrigatórias:
 4. Não use emojis nem caracteres especiais — comunicação limpa, mas com acentuação e pontuação normais (regra 3).
 5. Respostas curtas e diretas, mas completas.
 6. Não repita informação que você (Loja) já deu antes nessa mesma conversa (como o número de WhatsApp, por exemplo), a menos que o cliente pergunte de novo ou peça explicitamente.
-7. Se a mensagem do cliente for uma reclamação, envolver um pedido específico (rastreio, status de pagamento, problema com produto recebido) ou não estiver coberta pela base de conhecimento, você DEVE escalar para atendimento humano em vez de responder.
+7. Se a mensagem do cliente for uma reclamação, envolver um pedido específico (rastreio, status de pagamento, problema com produto recebido) ou não estiver coberta pela base de conhecimento, você DEVE escalar para atendimento humano em vez de responder. Ao escalar, SEMPRE inclua "reply_to_customer" com 1-2 mensagens curtas, naturais e específicas à pergunta dele, avisando que você vai verificar essa informação e que alguém da equipe vai entrar em contato em breve — nunca deixe o cliente sem nenhuma resposta.
 8. Algumas mensagens do cliente podem incluir imagens anexadas junto com a transcrição da conversa — observe o conteúdo das imagens (foto de produto, print de comprovante, etc.) ao formular sua resposta.
 9. Abaixo, em "Exemplos de respostas do atendente", há conversas reais em que um atendente humano respondeu clientes. Use esses exemplos como referência de tom, vocabulário e jeito de escrever — imite o estilo real da equipe, não um tom genérico de robô. Nunca copie o conteúdo factual desses exemplos para outra pergunta, use-os só para aprender COMO escrever, não O QUE dizer.
 10. Se o cliente pedir catálogo, fotos de produtos, tabela de preços/tamanhos ou qualquer material parecido com algo da lista "Anexos disponíveis" abaixo, inclua o campo "anexo_id" na resposta com o id exato daquele anexo, e mencione nas mensagens que você está enviando o arquivo. Se nada da lista corresponder ao pedido, ou se o cliente não pediu nenhum material, deixe "anexo_id" como null. Nunca invente um id que não esteja na lista.
@@ -156,7 +185,7 @@ Formato da resposta: divida sua resposta em mensagens curtas, como uma pessoa di
 
 {"action": "reply", "messages": ["primeira mensagem", "segunda mensagem"], "anexo_id": "id do anexo ou null"}
 ou
-{"action": "escalate", "reason": "motivo curto"}
+{"action": "escalate", "reason": "motivo curto", "reply_to_customer": ["mensagem avisando que vai verificar e a equipe retorna"]}
 
 ${exemplosTexto ? `Exemplos de respostas do atendente (imite o estilo, não copie o conteúdo):\n${exemplosTexto}\n` : ""}
 Anexos disponíveis (arquivos que você pode anexar e enviar quando o cliente pedir):
@@ -214,7 +243,13 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
     const ai = await aiResp.json();
     const raw = (ai?.choices?.[0]?.message?.content || "").trim();
 
-    let decision: { action: string; messages?: string[]; reason?: string; anexo_id?: string | null };
+    let decision: {
+      action: string;
+      messages?: string[];
+      reason?: string;
+      anexo_id?: string | null;
+      reply_to_customer?: string[];
+    };
     try {
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       decision = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
@@ -224,6 +259,29 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
     }
 
     if (decision.action === "escalate") {
+      const respostaEspera = (decision.reply_to_customer ?? []).map((m) => (m || "").trim()).filter(Boolean);
+      const podeEnviar = !!evolutionUrl && !!instance && !!apiKey;
+
+      // Modo automático de teste: já manda a resposta de espera pro cliente.
+      // Modo normal (toda a base real): ela fica como sugestão esperando
+      // aprovação humana — nunca sai sozinha pra cliente real.
+      if (contato.ai_auto_send && respostaEspera.length > 0 && podeEnviar) {
+        for (let i = 0; i < respostaEspera.length; i++) {
+          const texto = respostaEspera[i];
+          const evolutionMessageId = await enviarTexto(baseUrl, instance!, apiKey!, numeroCliente, texto);
+          await supabase.from("crm_messages").insert({
+            contact_id,
+            conteudo: texto,
+            direcao: "enviada",
+            is_ai_generated: true,
+            ...(evolutionMessageId ? { evolution_message_id: evolutionMessageId } : {}),
+          });
+          if (i < respostaEspera.length - 1) {
+            await new Promise((r) => setTimeout(r, 1200 + Math.random() * 900));
+          }
+        }
+      }
+
       await supabase
         .from("crm_contacts")
         .update({
@@ -232,14 +290,34 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
           // (valor antigo) não existe em nenhuma coluna e deixava o contato
           // invisível no Kanban.
           status: contato.status === "resolvido" ? contato.status : "aguardando_cliente",
-          ai_suggestion: null,
+          ai_suggestion: contato.ai_auto_send ? null : (respostaEspera.length > 0 ? respostaEspera : null),
           ai_suggestion_anexo_id: null,
           ai_suggestion_at: new Date().toISOString(),
         })
         .eq("id", contact_id);
 
+      // Avisa a equipe por WhatsApp que a Sofia precisou escalar — aviso
+      // interno, não é mensagem pro cliente, então não passa por aprovação.
+      if (numeroStaff && podeEnviar) {
+        const ultimaMsgCliente = [...historico].reverse().find((m) => m.direcao === "recebida");
+        const perguntaTexto = ultimaMsgCliente ? messageToText(ultimaMsgCliente) : "(sem mensagem recente)";
+        const avisoLinhas = [
+          "A Sofia precisou escalar uma conversa para atendimento humano.",
+          `Cliente: ${contato.nome || contato.telefone} (${contato.telefone})`,
+          `Pergunta: ${perguntaTexto}`,
+          decision.reason ? `Motivo: ${decision.reason}` : null,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        try {
+          await enviarTexto(baseUrl, instance!, apiKey!, numeroStaff, avisoLinhas);
+        } catch (e) {
+          console.error("[crm-ai-respond] falha ao notificar staff", e);
+        }
+      }
+
       return new Response(
-        JSON.stringify({ action: "escalate", reason: decision.reason ?? null }),
+        JSON.stringify({ action: "escalate", reason: decision.reason ?? null, reply_to_customer: respostaEspera }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -263,24 +341,14 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
     // WhatsApp, sem aprovação humana. Para todo o resto da base, continua
     // sendo sempre modo sugestão — nada sai sem aprovação.
     if (contato.ai_auto_send) {
-      const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
-      const instance = Deno.env.get("EVOLUTION_CRM_INSTANCE");
-      const apiKey = Deno.env.get("EVOLUTION_CRM_API_KEY");
       if (!evolutionUrl || !instance || !apiKey) {
         throw new Error("Variáveis do Evolution API não configuradas");
       }
-      const baseUrl = evolutionUrl.replace(/\/$/, "");
-      const number = String(contato.telefone).replace(/\D/g, "");
+      const number = numeroCliente;
 
       for (let i = 0; i < mensagens.length; i++) {
         const texto = mensagens[i];
-        const sendResp = await fetch(`${baseUrl}/message/sendText/${instance}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", apikey: apiKey },
-          body: JSON.stringify({ number, text: texto }),
-        });
-        const sendResult = await sendResp.json().catch(() => ({}));
-        const evolutionMessageId = sendResult?.key?.id || sendResult?.messageId || sendResult?.id || null;
+        const evolutionMessageId = await enviarTexto(baseUrl, instance, apiKey, number, texto);
 
         await supabase.from("crm_messages").insert({
           contact_id,
