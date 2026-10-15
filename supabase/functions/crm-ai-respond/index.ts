@@ -180,12 +180,13 @@ Regras obrigatórias:
 8. Algumas mensagens do cliente podem incluir imagens anexadas junto com a transcrição da conversa — observe o conteúdo das imagens (foto de produto, print de comprovante, etc.) ao formular sua resposta.
 9. Abaixo, em "Exemplos de respostas do atendente", há conversas reais em que um atendente humano respondeu clientes. Use esses exemplos como referência de tom, vocabulário e jeito de escrever — imite o estilo real da equipe, não um tom genérico de robô. Nunca copie o conteúdo factual desses exemplos para outra pergunta, use-os só para aprender COMO escrever, não O QUE dizer.
 10. Se o cliente pedir catálogo, fotos de produtos, tabela de preços/tamanhos ou qualquer material parecido com algo da lista "Anexos disponíveis" abaixo, inclua o campo "anexo_id" na resposta com o id exato daquele anexo, e mencione nas mensagens que você está enviando o arquivo. Se nada da lista corresponder ao pedido, ou se o cliente não pediu nenhum material, deixe "anexo_id" como null. Nunca invente um id que não esteja na lista.
+11. Pedidos de orçamento comercial (atacado, grupo, revenda) são escalados em duas etapas, nunca na primeira mensagem: primeiro você pergunta (num "reply" normal, sem escalar ainda) se o cliente quer adiantar quais produtos e quantidades deseja, pra você já passar pronto pro setor comercial preparar o orçamento, deixando claro que ele também pode preferir falar direto com o comercial sem detalhar agora. Só escale (action: escalate) depois que ele responder essa pergunta — com os produtos/quantidades informados, ou dizendo que prefere falar direto. Nessa escalada, marque "comercial": true e escreva em "reason" um resumo objetivo do que foi informado (produtos e quantidades, ou "cliente prefere falar direto com o comercial, sem detalhar pedido").
 
 Formato da resposta: divida sua resposta em mensagens curtas, como uma pessoa digitando naturalmente no WhatsApp (entre 1 e 5 mensagens, nunca um texto único e longo). Responda SEMPRE em JSON puro, sem markdown, em um dos dois formatos exatos:
 
 {"action": "reply", "messages": ["primeira mensagem", "segunda mensagem"], "anexo_id": "id do anexo ou null"}
 ou
-{"action": "escalate", "reason": "motivo curto", "reply_to_customer": ["mensagem avisando que vai verificar e a equipe retorna"]}
+{"action": "escalate", "reason": "motivo curto", "reply_to_customer": ["mensagem avisando que vai verificar e a equipe retorna"], "comercial": true ou false}
 
 ${exemplosTexto ? `Exemplos de respostas do atendente (imite o estilo, não copie o conteúdo):\n${exemplosTexto}\n` : ""}
 Anexos disponíveis (arquivos que você pode anexar e enviar quando o cliente pedir):
@@ -249,6 +250,7 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
       reason?: string;
       anexo_id?: string | null;
       reply_to_customer?: string[];
+      comercial?: boolean;
     };
     try {
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -304,19 +306,29 @@ ${baseConhecimento || "(nenhuma informação cadastrada ainda)"}`;
 
       // Avisa a equipe por WhatsApp que a Sofia precisou escalar — aviso
       // interno, não é mensagem pro cliente, então não passa por aprovação.
+      // Link wa.me deixa o contato clicável direto na notificação, sem a
+      // Ana Paula precisar digitar o número.
       if (numeroStaff && podeEnviar) {
+        const linkCliente = `https://wa.me/${numeroCliente}`;
         const ultimaMsgCliente = [...historico].reverse().find((m) => m.direcao === "recebida");
         const perguntaTexto = ultimaMsgCliente ? messageToText(ultimaMsgCliente) : "(sem mensagem recente)";
-        const avisoLinhas = [
-          "A Sofia precisou escalar uma conversa para atendimento humano.",
-          `Cliente: ${contato.nome || contato.telefone} (${contato.telefone})`,
-          `Pergunta: ${perguntaTexto}`,
-          decision.reason ? `Motivo: ${decision.reason}` : null,
-        ]
-          .filter(Boolean)
-          .join("\n");
+
+        const avisoLinhas = decision.comercial
+          ? [
+              "Novo pedido de orçamento comercial (atacado/grupo)!",
+              `Cliente: ${contato.nome || contato.telefone}`,
+              `Pedido informado: ${decision.reason || "(cliente não detalhou, prefere falar direto)"}`,
+              `Falar com o cliente: ${linkCliente}`,
+            ]
+          : [
+              "A Sofia precisou escalar uma conversa para atendimento humano.",
+              `Cliente: ${contato.nome || contato.telefone}`,
+              `Pergunta: ${perguntaTexto}`,
+              decision.reason ? `Motivo: ${decision.reason}` : null,
+              `Abrir conversa: ${linkCliente}`,
+            ].filter(Boolean);
         try {
-          await enviarTexto(baseUrl, instance!, apiKey!, numeroStaff, avisoLinhas);
+          await enviarTexto(baseUrl, instance!, apiKey!, numeroStaff, avisoLinhas.join("\n"));
         } catch (e) {
           console.error("[crm-ai-respond] falha ao notificar staff", e);
         }
