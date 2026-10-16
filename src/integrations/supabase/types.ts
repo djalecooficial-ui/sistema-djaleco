@@ -116,6 +116,33 @@ export type Database = {
         }
         Relationships: []
       }
+      comissao_pagamentos: {
+        Row: {
+          created_at: string
+          data_pagamento: string
+          id: string
+          observacoes: string | null
+          valor: number
+          vendedor_id: string
+        }
+        Insert: {
+          created_at?: string
+          data_pagamento: string
+          id?: string
+          observacoes?: string | null
+          valor: number
+          vendedor_id: string
+        }
+        Update: {
+          created_at?: string
+          data_pagamento?: string
+          id?: string
+          observacoes?: string | null
+          valor?: number
+          vendedor_id?: string
+        }
+        Relationships: []
+      }
       crm_contacts: {
         Row: {
           ai_auto_send: boolean

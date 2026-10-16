@@ -1,25 +1,66 @@
 import { AppLayout } from "@/components/layout/AppLayout";
 import { usePedidos, useUpdatePedido } from "@/hooks/usePedidos";
 import { useVendedores } from "@/hooks/useVendedores";
+import { useSystemSettings } from "@/hooks/useSystemSettings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useState, useMemo } from "react";
 import { format, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
-import { Check, Loader2, CalendarIcon, Pencil, Link } from "lucide-react";
+import { Check, Loader2, Pencil, Link, Wallet, Trash2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+
+type ComissaoPagamento = {
+  id: string;
+  vendedor_id: string;
+  valor: number;
+  data_pagamento: string;
+  observacoes: string | null;
+  created_at: string;
+};
+
+function useComissaoPagamentos() {
+  return useQuery<ComissaoPagamento[]>({
+    queryKey: ["comissao_pagamentos"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("comissao_pagamentos")
+        .select("*")
+        .order("data_pagamento", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as ComissaoPagamento[];
+    },
+  });
+}
 
 // Helper: extract local year/month from date string without timezone shift
 function getLocalYearMonth(dateStr: string): { year: number; month: number } {
@@ -109,7 +150,62 @@ export default function Financeiro() {
   const { data: pedidos } = usePedidos();
   const { data: vendedores } = useVendedores();
   const updatePedido = useUpdatePedido();
+  const { settings } = useSystemSettings();
+  const { data: pagamentos } = useComissaoPagamentos();
+  const qc = useQueryClient();
   const [tab, setTab] = useState<"visao" | "comissoes" | "pagarme">("visao");
+
+  // === Lançamentos de comissão (saldo corrido, não mais por pedido) ===
+  const [pagamentoDialogOpen, setPagamentoDialogOpen] = useState(false);
+  const [pagamentoVendedorId, setPagamentoVendedorId] = useState<string>("");
+  const [pagamentoValor, setPagamentoValor] = useState("");
+  const [pagamentoData, setPagamentoData] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [pagamentoObs, setPagamentoObs] = useState("");
+  const [deletePagamentoId, setDeletePagamentoId] = useState<string | null>(null);
+
+  const registrarPagamento = useMutation({
+    mutationFn: async () => {
+      const valor = parseFloat(pagamentoValor.replace(",", "."));
+      if (!pagamentoVendedorId) throw new Error("Selecione o vendedor");
+      if (isNaN(valor) || valor <= 0) throw new Error("Valor inválido");
+      const { error } = await supabase.from("comissao_pagamentos").insert({
+        vendedor_id: pagamentoVendedorId,
+        valor,
+        data_pagamento: pagamentoData,
+        observacoes: pagamentoObs.trim() || null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Pagamento registrado!");
+      qc.invalidateQueries({ queryKey: ["comissao_pagamentos"] });
+      setPagamentoDialogOpen(false);
+      setPagamentoValor("");
+      setPagamentoObs("");
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao registrar pagamento"),
+  });
+
+  const excluirPagamento = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("comissao_pagamentos").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Lançamento removido");
+      qc.invalidateQueries({ queryKey: ["comissao_pagamentos"] });
+      setDeletePagamentoId(null);
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao remover lançamento"),
+  });
+
+  const openPagamentoDialog = (vendedorId: string, valorSugerido?: number) => {
+    setPagamentoVendedorId(vendedorId);
+    setPagamentoValor(valorSugerido ? valorSugerido.toFixed(2).replace(".", ",") : "");
+    setPagamentoData(format(new Date(), "yyyy-MM-dd"));
+    setPagamentoObs("");
+    setPagamentoDialogOpen(true);
+  };
 
   // === Visão Geral filters ===
   const currentYear = new Date().getFullYear().toString();
@@ -152,6 +248,32 @@ export default function Financeiro() {
   const { data: pagarmeData, isLoading: pgLoading } = usePagarmeExtrato(pagarmeParams);
 
   const allPedidos = pedidos || [];
+
+  // Saldo devedor de comissão: soma gerada desde a data de corte (pedidos
+  // antigos não entram, ficam como já estavam) menos soma de lançamentos de
+  // pagamento — não é mais por pedido individual, é um saldo corrido.
+  const corteComissao = settings.comissao_corte_data || null;
+  const pedidosParaSaldo = useMemo(() => {
+    if (!corteComissao) return [];
+    const corte = getLocalDate(corteComissao);
+    return allPedidos.filter(
+      (p) => Number(p.comissao) > 0 && p.status_pagamento !== "pendente" && getLocalDate(p.data_pedido) >= corte,
+    );
+  }, [allPedidos, corteComissao]);
+
+  const saldoPorVendedor = useMemo(() => {
+    const map: Record<string, { gerado: number; pago: number }> = {};
+    for (const p of pedidosParaSaldo) {
+      const vid = p.vendedor_id || "sem_vendedor";
+      if (!map[vid]) map[vid] = { gerado: 0, pago: 0 };
+      map[vid].gerado += Number(p.comissao);
+    }
+    for (const pg of pagamentos ?? []) {
+      if (!map[pg.vendedor_id]) map[pg.vendedor_id] = { gerado: 0, pago: 0 };
+      map[pg.vendedor_id].pago += Number(pg.valor);
+    }
+    return map;
+  }, [pedidosParaSaldo, pagamentos]);
 
   // Filtered pedidos for Visão Geral
   const filteredPedidos = useMemo(() => {
@@ -253,8 +375,6 @@ export default function Financeiro() {
   const comTotalTed = comissoesTodas.reduce((s, p) => s + Number(p.taxa_ted), 0);
   const comTotalLiquido = comissoesTodas.reduce((s, p) => s + Number(p.valor_liquido), 0);
   const comTotalComissao = comissoesTodas.reduce((s, p) => s + Number(p.comissao), 0);
-  const comTotalPago = comissoesTodas.filter(p => p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
-  const comTotalPendente = comissoesTodas.filter(p => !p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
 
   const toggleTedSelect = (id: string) => {
     setSelectedTedPedidos(prev => {
@@ -308,20 +428,6 @@ export default function Financeiro() {
         }
       );
     }
-  };
-
-  const handlePagarComissao = (pedidoId: string, date: Date) => {
-    updatePedido.mutate(
-      { id: pedidoId, comissao_paga: true, comissao_paga_em: date.toISOString() },
-      { onSuccess: () => toast.success("Comissão marcada como paga!") }
-    );
-  };
-
-  const handleDesmarcarComissao = (pedidoId: string) => {
-    updatePedido.mutate(
-      { id: pedidoId, comissao_paga: false, comissao_paga_em: null },
-      { onSuccess: () => toast.success("Comissão revertida para pendente!") }
-    );
   };
 
   // Now saves percentage and recalculates value
@@ -513,7 +619,84 @@ export default function Financeiro() {
               </div>
             </Card>
 
-            {/* Summary totals */}
+            {/* Saldo devedor de comissão — saldo corrido desde a data de corte,
+                não mais por pedido individual. Não é filtrado por período,
+                é sempre o saldo atual. */}
+            <Card className="p-3 sm:p-4 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <Wallet className="h-4 w-4 text-primary" />
+                  <h3 className="font-semibold text-sm">Saldo de Comissão por Vendedor</h3>
+                </div>
+                {corteComissao && (
+                  <span className="text-[11px] text-muted-foreground">
+                    Controle a partir de {format(getLocalDate(corteComissao), "dd/MM/yyyy")}
+                  </span>
+                )}
+              </div>
+              {!corteComissao ? (
+                <p className="text-xs text-muted-foreground">Data de corte não configurada ainda.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {vendedores?.map((v) => {
+                    const saldo = saldoPorVendedor[v.id] || { gerado: 0, pago: 0 };
+                    if (saldo.gerado === 0 && saldo.pago === 0) return null;
+                    const devedor = saldo.gerado - saldo.pago;
+                    return (
+                      <Card key={v.id} className="p-3 space-y-2 bg-muted/30">
+                        <p className="text-sm font-medium">{v.nome}</p>
+                        <div className="text-xs space-y-0.5 text-muted-foreground">
+                          <p>Gerado: <span className="text-foreground font-medium">{formatCurrency(saldo.gerado)}</span></p>
+                          <p>Pago: <span className="text-foreground font-medium">{formatCurrency(saldo.pago)}</span></p>
+                        </div>
+                        <p className="text-sm">
+                          Saldo devedor:{" "}
+                          <span className={cn("font-semibold", devedor > 0.009 ? "text-destructive" : "text-green-600")}>
+                            {formatCurrency(devedor)}
+                          </span>
+                        </p>
+                        <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={() => openPagamentoDialog(v.id)}>
+                          <Plus className="h-3 w-3 mr-1" /> Registrar Pagamento
+                        </Button>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+
+            {/* Histórico de lançamentos */}
+            <Card className="p-3 sm:p-4 space-y-2">
+              <h3 className="font-semibold text-sm">Histórico de Pagamentos</h3>
+              {!pagamentos || pagamentos.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Nenhum pagamento lançado ainda.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {pagamentos.map((pg) => {
+                    const v = vendedores?.find((x) => x.id === pg.vendedor_id);
+                    return (
+                      <div key={pg.id} className="flex items-center justify-between gap-2 text-xs bg-muted/30 rounded-md px-2.5 py-1.5">
+                        <div className="min-w-0">
+                          <span className="font-medium">{formatCurrency(Number(pg.valor))}</span>
+                          <span className="text-muted-foreground"> · {v?.nome || "—"} · {format(getLocalDate(pg.data_pagamento), "dd/MM/yyyy")}</span>
+                          {pg.observacoes && <p className="text-muted-foreground truncate">{pg.observacoes}</p>}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 text-destructive shrink-0"
+                          onClick={() => setDeletePagamentoId(pg.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+
+            {/* Summary totals (período filtrado) */}
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-3 sm:gap-4">
               {[
                 { label: "Fat. Bruto", value: comTotalBruto },
@@ -521,9 +704,7 @@ export default function Financeiro() {
                 { label: "Taxas Pagar.me", value: comTotalTaxa },
                 { label: "Taxa TED", value: comTotalTed },
                 { label: "Fat. Líquido", value: comTotalLiquido },
-                { label: "Total Comissões", value: comTotalComissao },
-                { label: "Comissões Pagas", value: comTotalPago, color: "text-green-600" },
-                { label: "Comissões Pendentes", value: comTotalPendente, color: "text-destructive" },
+                { label: "Total Comissões Geradas", value: comTotalComissao },
               ].map(({ label, value, color }) => (
                 <Card key={label}>
                   <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
@@ -534,29 +715,6 @@ export default function Financeiro() {
                   </CardContent>
                 </Card>
               ))}
-            </div>
-
-            {/* Vendor cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-              {vendedores?.filter(v => comVendedor === "all" || v.id === comVendedor).map((v) => {
-                const pedidosVendedor = comissoesTodas.filter((p) => p.vendedor_id === v.id);
-                const totalCom = pedidosVendedor.reduce((s, p) => s + Number(p.comissao), 0);
-                const pendente = pedidosVendedor.filter((p) => !p.comissao_paga).reduce((s, p) => s + Number(p.comissao), 0);
-                if (totalCom === 0) return null;
-                return (
-                  <Card key={v.id}>
-                    <CardHeader className="pb-1 p-3 sm:p-6 sm:pb-2">
-                      <CardTitle className="text-xs sm:text-sm">{v.nome} ({v.taxa_comissao}%)</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-                      <div className="text-xs sm:text-sm space-y-1">
-                        <p>Total: <span className="font-medium">{formatCurrency(totalCom)}</span></p>
-                        <p>Pendente: <span className="font-medium text-destructive">{formatCurrency(pendente)}</span></p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
             </div>
 
             {/* TED grouping toolbar + summary */}
@@ -614,48 +772,17 @@ export default function Financeiro() {
                           <Link className="h-3 w-3 mr-1" />
                           Aplicar TED único
                         </Button>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button size="sm" variant="outline">
-                              <CalendarIcon className="h-3 w-3 mr-1" />
-                              Pagar comissões selecionadas
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              onSelect={(d) => {
-                                if (!d) return;
-                                let done = 0;
-                                for (const p of selected) {
-                                  if (p.comissao_paga) { done++; continue; }
-                                  updatePedido.mutate(
-                                    { id: p.id, comissao_paga: true, comissao_paga_em: d.toISOString() },
-                                    { onSuccess: () => { done++; if (done === selected.length) { toast.success(`${selected.length} comissões pagas!`); setSelectedTedPedidos(new Set()); } } }
-                                  );
-                                }
-                              }}
-                              initialFocus
-                              className={cn("p-3 pointer-events-auto")}
-                            />
-                            <div className="p-2 border-t">
-                              <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={() => {
-                                const d = new Date();
-                                let done = 0;
-                                const unpaid = selected.filter(p => !p.comissao_paga);
-                                if (unpaid.length === 0) { toast.info("Todas já estão pagas"); return; }
-                                for (const p of unpaid) {
-                                  updatePedido.mutate(
-                                    { id: p.id, comissao_paga: true, comissao_paga_em: d.toISOString() },
-                                    { onSuccess: () => { done++; if (done === unpaid.length) { toast.success(`${unpaid.length} comissões pagas!`); setSelectedTedPedidos(new Set()); } } }
-                                  );
-                                }
-                              }}>
-                                Hoje
-                              </Button>
-                            </div>
-                          </PopoverContent>
-                        </Popover>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const vendedorId = comVendedor !== "all" ? comVendedor : selected[0]?.vendedor_id || "";
+                            openPagamentoDialog(vendedorId, projectedComissao);
+                          }}
+                        >
+                          <Wallet className="h-3 w-3 mr-1" />
+                          Registrar pagamento desse valor
+                        </Button>
                       </div>
                     </div>
                   </div>
@@ -685,14 +812,11 @@ export default function Financeiro() {
                       <TableHead className="text-right">Líquido</TableHead>
                       <TableHead className="text-right">%</TableHead>
                       <TableHead className="text-right">Comissão</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Data Pagamento</TableHead>
-                      <TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {comissoesTodas.length === 0 ? (
-                      <TableRow><TableCell colSpan={15} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
                     ) : (
                       comissoesTodas.map((p) => {
                         const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
@@ -750,45 +874,6 @@ export default function Financeiro() {
                               )}
                             </TableCell>
                             <TableCell className="text-right font-medium">{formatCurrency(Number(p.comissao))}</TableCell>
-                            <TableCell>
-                              <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-xs cursor-pointer"
-                                onClick={() => p.comissao_paga ? handleDesmarcarComissao(p.id) : undefined}
-                                title={p.comissao_paga ? "Clique para reverter" : ""}
-                              >
-                                {p.comissao_paga ? "Pago" : "Pendente"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
-                              {p.comissao_paga_em ? format(new Date(p.comissao_paga_em), "dd/MM/yyyy") : "—"}
-                            </TableCell>
-                            <TableCell>
-                              {!p.comissao_paga ? (
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <Button size="sm" variant="outline" className="h-7 text-xs">
-                                      <CalendarIcon className="h-3 w-3 mr-1" />Pagar
-                                    </Button>
-                                  </PopoverTrigger>
-                                   <PopoverContent className="w-auto p-0" align="start">
-                                    <Calendar
-                                      mode="single"
-                                      onSelect={(d) => d && handlePagarComissao(p.id, d)}
-                                      initialFocus
-                                      className={cn("p-3 pointer-events-auto")}
-                                    />
-                                    <div className="p-2 border-t">
-                                      <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={() => handlePagarComissao(p.id, new Date())}>
-                                        Hoje
-                                      </Button>
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
-                              ) : (
-                                <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => handleDesmarcarComissao(p.id)}>
-                                  Reverter
-                                </Button>
-                              )}
-                            </TableCell>
                           </TableRow>
                         );
                       })
@@ -814,11 +899,6 @@ export default function Financeiro() {
                         />
                         <span className="font-medium text-sm">#{p.numero_pedido}</span>
                       </div>
-                      <Badge variant={p.comissao_paga ? "secondary" : "destructive"} className="text-[10px] cursor-pointer"
-                        onClick={() => p.comissao_paga ? handleDesmarcarComissao(p.id) : undefined}
-                      >
-                        {p.comissao_paga ? "Pago ✕" : "Pendente"}
-                      </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground">{p.cliente_nome} · {vendedorItem?.nome || "—"}</p>
                     <p className="text-[10px] text-muted-foreground">Data: {format(new Date(p.data_pedido), "dd/MM/yyyy")}</p>
@@ -863,38 +943,7 @@ export default function Financeiro() {
                           </Button>
                         </div>
                       )}
-                      {!isEditing && (
-                        !p.comissao_paga ? (
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button size="sm" variant="outline" className="h-7 text-xs">
-                                <CalendarIcon className="h-3 w-3 mr-1" />Pagar
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="end">
-                              <Calendar
-                                mode="single"
-                                onSelect={(d) => d && handlePagarComissao(p.id, d)}
-                                initialFocus
-                                className={cn("p-3 pointer-events-auto")}
-                              />
-                              <div className="p-2 border-t">
-                                <Button size="sm" variant="outline" className="w-full h-7 text-xs" onClick={() => handlePagarComissao(p.id, new Date())}>
-                                  Hoje
-                                </Button>
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-                        ) : (
-                          <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => handleDesmarcarComissao(p.id)}>
-                            Reverter
-                          </Button>
-                        )
-                      )}
                     </div>
-                    {p.comissao_paga_em && (
-                      <p className="text-[10px] text-muted-foreground">Pago em: {format(new Date(p.comissao_paga_em), "dd/MM/yyyy")}</p>
-                    )}
                   </Card>
                 );
               })}
@@ -1098,6 +1147,78 @@ export default function Financeiro() {
           </>
         )}
       </div>
+
+      <Dialog open={pagamentoDialogOpen} onOpenChange={setPagamentoDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Registrar Pagamento de Comissão</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Vendedor</Label>
+              <Select value={pagamentoVendedorId} onValueChange={setPagamentoVendedorId}>
+                <SelectTrigger><SelectValue placeholder="Selecionar vendedor" /></SelectTrigger>
+                <SelectContent>
+                  {vendedores?.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pagamentoValor">Valor (R$)</Label>
+              <Input
+                id="pagamentoValor"
+                value={pagamentoValor}
+                onChange={(e) => setPagamentoValor(e.target.value)}
+                placeholder="0,00"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pagamentoData">Data do Pagamento</Label>
+              <Input
+                id="pagamentoData"
+                type="date"
+                value={pagamentoData}
+                onChange={(e) => setPagamentoData(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pagamentoObs">Observações (opcional)</Label>
+              <Textarea
+                id="pagamentoObs"
+                value={pagamentoObs}
+                onChange={(e) => setPagamentoObs(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPagamentoDialogOpen(false)}>Cancelar</Button>
+            <Button onClick={() => registrarPagamento.mutate()} disabled={registrarPagamento.isPending}>
+              {registrarPagamento.isPending ? "Salvando..." : "Registrar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deletePagamentoId} onOpenChange={(v) => !v && setDeletePagamentoId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover este lançamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O saldo devedor volta a somar esse valor. Essa ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deletePagamentoId && excluirPagamento.mutate(deletePagamentoId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
