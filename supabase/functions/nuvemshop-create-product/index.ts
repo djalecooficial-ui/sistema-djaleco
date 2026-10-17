@@ -10,8 +10,13 @@ const corsHeaders = {
 interface VariantInput {
   valores: string[];
   preco: string;
-  estoque: number;
+  estoque: number | null; // null = estoque ilimitado (sem controle)
   sku?: string;
+}
+
+interface ImagemInput {
+  url: string;
+  cor?: string; // se informado, amarra essa foto à variação dessa cor via image_id
 }
 
 interface CreateProductInput {
@@ -20,7 +25,7 @@ interface CreateProductInput {
   categorias?: number[];
   atributos: string[];
   variantes: VariantInput[];
-  imagens?: string[];
+  imagens?: ImagemInput[];
 }
 
 serve(async (req) => {
@@ -60,21 +65,26 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Informe ao menos uma variação com preço" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const toVariantPayload = (v: VariantInput) => ({
+    const corIndex = input.atributos.findIndex((a) => a.toLowerCase() === "cor");
+
+    const basicVariantPayload = (v: VariantInput) => ({
       ...(input.atributos.length ? { values: v.valores.map((val) => ({ pt: val })) } : {}),
       price: v.preco,
-      stock_management: true,
-      stock: v.estoque,
+      ...(v.estoque === null
+        ? { stock_management: false }
+        : { stock_management: true, stock: v.estoque }),
       ...(v.sku ? { sku: v.sku } : {}),
     });
 
-    // 1) Cria o produto com a primeira variação (a API exige ao menos uma na criação)
+    // 1) Cria o produto já com todas as fotos e a primeira variação
+    //    (a API exige ao menos uma variação na criação; o restante vem no passo 3)
     const createBody = {
       name: { pt: input.nome.trim() },
       description: { pt: input.descricao?.trim() || "" },
       ...(input.atributos.length ? { attributes: input.atributos } : {}),
       ...(input.categorias?.length ? { categories: input.categorias } : {}),
-      variants: [toVariantPayload(input.variantes[0])],
+      ...(input.imagens?.length ? { images: input.imagens.map((i) => ({ src: i.url })) } : {}),
+      variants: [basicVariantPayload(input.variantes[0])],
     };
 
     const createRes = await fetch(`${baseUrl}/products`, {
@@ -90,34 +100,38 @@ serve(async (req) => {
       );
     }
     const productId = createResult.id;
-
     const warnings: string[] = [];
 
-    // 2) Se houver mais de uma variação, substitui o conjunto completo
-    if (input.variantes.length > 1) {
-      const variantsRes = await fetch(`${baseUrl}/products/${productId}/variants`, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify(input.variantes.map(toVariantPayload)),
+    // 2) Monta o mapa cor -> image_id a partir das fotos recém-criadas
+    //    (a Nuvemshop devolve o id de cada imagem na mesma ordem em que foram enviadas)
+    const corParaImageId = new Map<string, number>();
+    if (input.imagens?.length && Array.isArray(createResult.images)) {
+      input.imagens.forEach((img, i) => {
+        const cor = img.cor?.trim().toLowerCase();
+        const criada = createResult.images[i];
+        if (cor && criada?.id) corParaImageId.set(cor, criada.id);
       });
-      if (!variantsRes.ok) {
-        const text = await variantsRes.text();
-        warnings.push(`Produto criado, mas falhou ao cadastrar todas as variações: ${text}`);
-      }
     }
 
-    // 3) Sobe as imagens (uma a uma, na ordem)
-    for (let i = 0; i < (input.imagens?.length ?? 0); i++) {
-      const src = input.imagens![i];
-      const imgRes = await fetch(`${baseUrl}/products/${productId}/images`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ src, position: i + 1 }),
-      });
-      if (!imgRes.ok) {
-        const text = await imgRes.text();
-        warnings.push(`Falha ao enviar a imagem ${i + 1}: ${text}`);
+    const variantPayloadComFoto = (v: VariantInput) => {
+      const payload: Record<string, unknown> = basicVariantPayload(v);
+      if (corIndex >= 0) {
+        const cor = v.valores[corIndex]?.trim().toLowerCase();
+        const imageId = cor ? corParaImageId.get(cor) : undefined;
+        if (imageId) payload.image_id = imageId;
       }
+      return payload;
+    };
+
+    // 3) Substitui o conjunto completo de variações, agora já com image_id de cada cor
+    const variantsRes = await fetch(`${baseUrl}/products/${productId}/variants`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(input.variantes.map(variantPayloadComFoto)),
+    });
+    if (!variantsRes.ok) {
+      const text = await variantsRes.text();
+      warnings.push(`Produto criado, mas falhou ao cadastrar as variações com as fotos vinculadas: ${text}`);
     }
 
     return new Response(

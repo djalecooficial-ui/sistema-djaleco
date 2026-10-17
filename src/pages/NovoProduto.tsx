@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, Upload, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -63,8 +64,10 @@ export default function NovoProduto() {
   const [tamanhos, setTamanhos] = useState("");
   const [preco, setPreco] = useState("");
   const [estoque, setEstoque] = useState("10");
+  const [estoqueIlimitado, setEstoqueIlimitado] = useState(false);
   const [categoriasSelecionadas, setCategoriasSelecionadas] = useState<number[]>([]);
   const [imagens, setImagens] = useState<File[]>([]);
+  const [imagemCores, setImagemCores] = useState<(string | null)[]>([]);
   const [etapa, setEtapa] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -76,19 +79,29 @@ export default function NovoProduto() {
 
   const onFilesChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
-    if (files.length) setImagens((prev) => [...prev, ...files]);
+    if (!files.length) return;
+    const listaCores = splitList(cores);
+    setImagens((prev) => {
+      const startIdx = prev.length;
+      setImagemCores((prevCores) => [
+        ...prevCores,
+        ...files.map((_, i) => listaCores[startIdx + i] ?? null),
+      ]);
+      return [...prev, ...files];
+    });
     e.target.value = "";
   };
 
   const removeImagem = (idx: number) => {
     setImagens((prev) => prev.filter((_, i) => i !== idx));
+    setImagemCores((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const buildVariantes = () => {
     const listaCores = splitList(cores);
     const listaTamanhos = splitList(tamanhos);
     const precoFmt = Number(preco.replace(",", ".")).toFixed(2);
-    const estoqueNum = Number(estoque) || 0;
+    const estoqueNum: number | null = estoqueIlimitado ? null : Number(estoque) || 0;
 
     if (listaCores.length && listaTamanhos.length) {
       const variantes = [];
@@ -131,8 +144,9 @@ export default function NovoProduto() {
     setSalvando(true);
     try {
       setEtapa(imagens.length ? "Enviando fotos..." : null);
-      const urlsImagens: string[] = [];
-      for (const file of imagens) {
+      const imagensPayload: { url: string; cor?: string }[] = [];
+      for (let i = 0; i < imagens.length; i++) {
+        const file = imagens[i];
         const ext = file.name.split(".").pop() || "jpg";
         const path = `${crypto.randomUUID()}.${ext}`;
         const { error: upErr } = await supabase.storage
@@ -140,7 +154,7 @@ export default function NovoProduto() {
           .upload(path, file, { contentType: file.type || "image/jpeg" });
         if (upErr) throw new Error(`Erro ao enviar foto ${file.name}: ${upErr.message}`);
         const { data: pub } = supabase.storage.from(IMAGES_BUCKET).getPublicUrl(path);
-        urlsImagens.push(pub.publicUrl);
+        imagensPayload.push({ url: pub.publicUrl, cor: imagemCores[i] ?? undefined });
       }
 
       setEtapa("Cadastrando produto na Nuvemshop...");
@@ -152,7 +166,7 @@ export default function NovoProduto() {
           categorias: categoriasSelecionadas,
           atributos,
           variantes,
-          imagens: urlsImagens,
+          imagens: imagensPayload,
         },
       });
       if (error) throw error;
@@ -215,7 +229,11 @@ export default function NovoProduto() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="estoque">Estoque por variação</Label>
-                <Input id="estoque" type="number" min={0} value={estoque} onChange={(e) => setEstoque(e.target.value)} />
+                <Input id="estoque" type="number" min={0} value={estoque} onChange={(e) => setEstoque(e.target.value)} disabled={estoqueIlimitado} />
+                <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer pt-1">
+                  <Checkbox checked={estoqueIlimitado} onCheckedChange={(v) => setEstoqueIlimitado(!!v)} />
+                  Estoque ilimitado (sem controle de quantidade)
+                </label>
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -248,17 +266,37 @@ export default function NovoProduto() {
               Escolher fotos
             </Button>
             {imagens.length > 0 && (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {imagens.map((file, i) => (
-                  <div key={i} className="relative aspect-square rounded-md overflow-hidden border">
-                    <img src={URL.createObjectURL(file)} alt={file.name} className="w-full h-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => removeImagem(i)}
-                      className="absolute top-1 right-1 bg-background/80 rounded-full p-1 hover:bg-destructive hover:text-destructive-foreground"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                  <div key={i} className="space-y-1">
+                    <div className="relative aspect-square rounded-md overflow-hidden border">
+                      <img src={URL.createObjectURL(file)} alt={file.name} className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => removeImagem(i)}
+                        className="absolute top-1 right-1 bg-background/80 rounded-full p-1 hover:bg-destructive hover:text-destructive-foreground"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                    {splitList(cores).length > 0 && (
+                      <Select
+                        value={imagemCores[i] ?? "__nenhuma__"}
+                        onValueChange={(v) =>
+                          setImagemCores((prev) => prev.map((c, idx) => (idx === i ? (v === "__nenhuma__" ? null : v) : c)))
+                        }
+                      >
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue placeholder="Cor da foto" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__nenhuma__">Sem cor vinculada</SelectItem>
+                          {splitList(cores).map((c) => (
+                            <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                 ))}
               </div>
