@@ -1,11 +1,13 @@
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Package, Palette, Ruler } from "lucide-react";
+import { Package, Palette, Ruler, Plus } from "lucide-react";
 
 interface Product {
   id: number;
@@ -84,6 +86,7 @@ function ProductCard({ product }: { product: Product }) {
 }
 
 export default function Produtos() {
+  const navigate = useNavigate();
   const { data: products, isLoading, error } = useProdutos();
 
   return (
@@ -91,9 +94,15 @@ export default function Produtos() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-xl sm:text-2xl font-bold text-foreground">Produtos</h1>
-          {products && (
-            <Badge variant="outline">{products.length} produtos</Badge>
-          )}
+          <div className="flex items-center gap-2">
+            {products && (
+              <Badge variant="outline">{products.length} produtos</Badge>
+            )}
+            <Button size="sm" onClick={() => navigate("/produtos/novo")}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              Novo Produto
+            </Button>
+          </div>
         </div>
 
         {error && (
