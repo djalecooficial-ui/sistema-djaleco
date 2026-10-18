@@ -46,8 +46,9 @@ export default function Pedidos() {
       if (error) throw error;
       if (data?.success) {
         const novos = data.pulled_from_superfrete || 0;
+        const atualizadosNuvemshop = data.pushed_to_nuvemshop || 0;
         toast.success(
-          `Rastreio verificado! ${novos} encontrados direto na SuperFrete, ${data.updated} atualizados, ${data.checked} sem novidades, ${data.no_data} sem dados.`,
+          `Rastreio verificado! ${novos} encontrados direto na SuperFrete (${atualizadosNuvemshop} atualizados na Nuvemshop também), ${data.updated} atualizados, ${data.checked} sem novidades, ${data.no_data} sem dados.`,
         );
         queryClient.invalidateQueries({ queryKey: ["pedidos"] });
       } else {

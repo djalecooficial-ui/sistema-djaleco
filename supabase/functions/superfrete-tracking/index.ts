@@ -17,6 +17,58 @@ function normalizeName(name: string): string {
     .trim();
 }
 
+// Escreve o rastreio de volta no pedido da Nuvemshop (código + status de
+// entrega), já que a etiqueta nasce fora de lá e o pedido nunca fica
+// sabendo sozinho. notify_customer sempre false - isso é sincronização de
+// dado histórico/retroativo, não é o momento real do envio, então não faz
+// sentido mandar e-mail "seu pedido foi enviado" pro cliente agora.
+async function pushTrackingToNuvemshop(nuvemshopOrderId: number, trackingCode: string | null, delivered: boolean) {
+  const storeId = Deno.env.get("NUVEMSHOP_STORE_ID");
+  const accessToken = Deno.env.get("NUVEMSHOP_ACCESS_TOKEN");
+  if (!storeId || !accessToken) return false;
+
+  const baseUrl = `https://api.nuvemshop.com.br/v1/${storeId}`;
+  const headers = {
+    Authentication: `bearer ${accessToken}`,
+    "User-Agent": "Djaleco App (contato@djaleco.com.br)",
+    "Content-Type": "application/json",
+  };
+
+  try {
+    const orderRes = await fetch(`${baseUrl}/orders/${nuvemshopOrderId}?fields=id,fulfillments`, { headers });
+    if (!orderRes.ok) return false;
+    const order = await orderRes.json();
+    const fulfillmentOrderId = order?.fulfillments?.[0];
+    if (!fulfillmentOrderId) return false;
+
+    if (trackingCode) {
+      await fetch(`${baseUrl}/orders/${nuvemshopOrderId}/fulfillment-orders/${fulfillmentOrderId}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ tracking_info: { code: trackingCode, notify_customer: false } }),
+      });
+    }
+
+    if (delivered) {
+      // Precisa estar DISPATCHED antes de aceitar um tracking-event
+      await fetch(`${baseUrl}/orders/${nuvemshopOrderId}/fulfillment-orders/${fulfillmentOrderId}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ status: "DISPATCHED" }),
+      });
+      await fetch(`${baseUrl}/orders/${nuvemshopOrderId}/fulfillment-orders/${fulfillmentOrderId}/tracking-events`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ status: "delivered", description: "Entregue", address: "-" }),
+      });
+    }
+    return true;
+  } catch (e) {
+    console.warn(`Erro ao atualizar pedido Nuvemshop ${nuvemshopOrderId}:`, (e as Error).message);
+    return false;
+  }
+}
+
 // Busca os envios na SuperFrete direto (GET /api/v0/me/orders) e casa com
 // pedidos que ainda não têm rastreio, pelo nome do destinatário + data
 // próxima do pedido. Necessário porque as etiquetas são geradas direto no
@@ -24,7 +76,7 @@ function normalizeName(name: string): string {
 // nunca recebe o código de volta, então não tem o que sincronizar de lá.
 async function pullFromSuperfrete(supabase: any) {
   const apiKey = Deno.env.get("SUPERFRETE_API_KEY");
-  if (!apiKey) return { matched: 0, checked: 0 };
+  if (!apiKey) return { matched: 0, pushed_to_nuvemshop: 0, checked: 0 };
 
   const headers = {
     Authorization: `Bearer ${apiKey}`,
@@ -61,12 +113,13 @@ async function pullFromSuperfrete(supabase: any) {
   seisMesesAtras.setMonth(seisMesesAtras.getMonth() - 6);
   const { data: pedidosSemRastreio } = await supabase
     .from("pedidos")
-    .select("id, numero_pedido, cliente_nome, data_pedido")
+    .select("id, numero_pedido, cliente_nome, data_pedido, nuvemshop_order_id")
     .is("rastreio_codigo", null)
     .is("superfrete_order_id", null)
     .gte("data_pedido", seisMesesAtras.toISOString());
 
   let matched = 0;
+  let pushedToNuvemshop = 0;
   for (const pedido of pedidosSemRastreio || []) {
     const nome = normalizeName(pedido.cliente_nome);
     const candidatos = porNome.get(nome);
@@ -92,10 +145,25 @@ async function pullFromSuperfrete(supabase: any) {
     if (Object.keys(updates).length === 0) continue;
 
     const { error } = await supabase.from("pedidos").update(updates).eq("id", pedido.id);
-    if (!error) matched++;
+    if (!error) {
+      matched++;
+      if (pedido.nuvemshop_order_id) {
+        const ok = await pushTrackingToNuvemshop(
+          pedido.nuvemshop_order_id,
+          updates.rastreio_codigo || null,
+          envio.status === "delivered",
+        );
+        if (ok) pushedToNuvemshop++;
+      }
+    }
   }
 
-  return { matched, checked: (pedidosSemRastreio || []).length, total_superfrete: envios.length };
+  return {
+    matched,
+    pushed_to_nuvemshop: pushedToNuvemshop,
+    checked: (pedidosSemRastreio || []).length,
+    total_superfrete: envios.length,
+  };
 }
 
 async function checkTracking(supabase: any, pedido: any) {
@@ -266,6 +334,7 @@ serve(async (req) => {
           no_data: noData,
           results,
           pulled_from_superfrete: pull.matched,
+          pushed_to_nuvemshop: pull.pushed_to_nuvemshop,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
