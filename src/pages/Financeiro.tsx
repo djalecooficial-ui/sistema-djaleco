@@ -257,7 +257,11 @@ export default function Financeiro() {
     if (!corteComissao) return [];
     const corte = getLocalDate(corteComissao);
     return allPedidos.filter(
-      (p) => Number(p.comissao) > 0 && p.status_pagamento !== "pendente" && getLocalDate(p.data_pedido) >= corte,
+      (p) =>
+        Number(p.comissao) > 0 &&
+        p.status_pagamento !== "pendente" &&
+        p.comissao_considerar_saldo !== false &&
+        getLocalDate(p.data_pedido) >= corte,
     );
   }, [allPedidos, corteComissao]);
 
@@ -507,17 +511,44 @@ export default function Financeiro() {
     return Math.round((com / liq) * 100 * 100) / 100;
   };
 
-  // Badge de status de pagamento da comissão, calculado automaticamente
-  // pela alocação dos lançamentos (não é mais um campo editável por pedido)
-  const renderStatusComissao = (pedidoId: string) => {
-    const status = alocacaoPorPedido[pedidoId];
-    if (!status || status.percentual === 0) {
-      return <Badge variant="outline" className="text-muted-foreground font-normal">Pendente</Badge>;
+  // Status de pagamento da comissão, calculado automaticamente pela
+  // alocação dos lançamentos. O checkbox deixa tirar um pedido específico
+  // do cálculo (ex: repasse do Pagar.me ainda não caiu) sem mexer no
+  // pedido em si — só aparece pros pedidos que estão dentro do escopo do
+  // saldo corrido (a partir da data de corte); pedidos antigos não têm
+  // esse controle porque não entram no cálculo de qualquer forma.
+  const renderStatusComissao = (p: typeof allPedidos[0]) => {
+    const dentroDoEscopo = corteComissao && getLocalDate(p.data_pedido) >= getLocalDate(corteComissao);
+    if (!dentroDoEscopo) return null;
+
+    const considerar = p.comissao_considerar_saldo !== false;
+    const toggle = (checked: boolean) =>
+      updatePedido.mutate({ id: p.id, comissao_considerar_saldo: checked });
+
+    let badge;
+    if (!considerar) {
+      badge = <Badge variant="outline" className="text-muted-foreground font-normal">Fora do cálculo</Badge>;
+    } else {
+      const status = alocacaoPorPedido[p.id];
+      if (!status || status.percentual === 0) {
+        badge = <Badge variant="outline" className="text-muted-foreground font-normal">Não pago</Badge>;
+      } else if (status.pago) {
+        badge = <Badge className="bg-green-600 hover:bg-green-600 font-normal">Pago</Badge>;
+      } else {
+        badge = <Badge variant="secondary" className="font-normal">{status.percentual}% pago</Badge>;
+      }
     }
-    if (status.pago) {
-      return <Badge className="bg-green-600 hover:bg-green-600 font-normal">Pago</Badge>;
-    }
-    return <Badge variant="secondary" className="font-normal">{status.percentual}% pago</Badge>;
+
+    return (
+      <div className="flex items-center gap-1.5">
+        <Checkbox
+          checked={considerar}
+          onCheckedChange={(v) => toggle(!!v)}
+          title="Considerar este pedido no cálculo do saldo de comissão"
+        />
+        {badge}
+      </div>
+    );
   };
 
   return (
@@ -924,7 +955,7 @@ export default function Financeiro() {
                               )}
                             </TableCell>
                             <TableCell className="text-right font-medium">{formatCurrency(Number(p.comissao))}</TableCell>
-                            <TableCell>{renderStatusComissao(p.id)}</TableCell>
+                            <TableCell>{renderStatusComissao(p)}</TableCell>
                           </TableRow>
                         );
                       })
@@ -953,7 +984,7 @@ export default function Financeiro() {
                     </div>
                     <div className="flex items-center justify-between">
                       <p className="text-xs text-muted-foreground">{p.cliente_nome} · {vendedorItem?.nome || "—"}</p>
-                      {renderStatusComissao(p.id)}
+                      {renderStatusComissao(p)}
                     </div>
                     <p className="text-[10px] text-muted-foreground">Data: {format(new Date(p.data_pedido), "dd/MM/yyyy")}</p>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground">

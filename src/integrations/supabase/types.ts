@@ -462,6 +462,7 @@ export type Database = {
           cliente_profissao: string | null
           cliente_telefone: string | null
           comissao: number
+          comissao_considerar_saldo: boolean
           comissao_paga: boolean
           comissao_paga_em: string | null
           created_at: string
@@ -501,6 +502,7 @@ export type Database = {
           cliente_profissao?: string | null
           cliente_telefone?: string | null
           comissao?: number
+          comissao_considerar_saldo?: boolean
           comissao_paga?: boolean
           comissao_paga_em?: string | null
           created_at?: string
@@ -540,6 +542,7 @@ export type Database = {
           cliente_profissao?: string | null
           cliente_telefone?: string | null
           comissao?: number
+          comissao_considerar_saldo?: boolean
           comissao_paga?: boolean
           comissao_paga_em?: string | null
           created_at?: string
