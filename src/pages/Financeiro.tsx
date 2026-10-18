@@ -275,6 +275,42 @@ export default function Financeiro() {
     return map;
   }, [pedidosParaSaldo, pagamentos]);
 
+  // Alocação automática: distribui os lançamentos de pagamento nos pedidos
+  // (do mais antigo pro mais novo, por vendedor) pra saber até onde cada
+  // pagamento "pagou" — pedido vira pago quando o acumulado cobre a comissão
+  // inteira; se parar no meio, mostra o percentual já coberto daquele pedido.
+  const alocacaoPorPedido = useMemo(() => {
+    const map: Record<string, { pago: boolean; percentual: number }> = {};
+    const porVendedor: Record<string, typeof pedidosParaSaldo> = {};
+    for (const p of pedidosParaSaldo) {
+      const vid = p.vendedor_id || "sem_vendedor";
+      (porVendedor[vid] ??= []).push(p);
+    }
+    const pagoPorVendedor: Record<string, number> = {};
+    for (const pg of pagamentos ?? []) {
+      pagoPorVendedor[pg.vendedor_id] = (pagoPorVendedor[pg.vendedor_id] || 0) + Number(pg.valor);
+    }
+    for (const vid of Object.keys(porVendedor)) {
+      const ordenados = [...porVendedor[vid]].sort(
+        (a, b) => getLocalDate(a.data_pedido).getTime() - getLocalDate(b.data_pedido).getTime(),
+      );
+      let saldoDisponivel = pagoPorVendedor[vid] || 0;
+      for (const p of ordenados) {
+        const comissao = Number(p.comissao);
+        if (saldoDisponivel >= comissao) {
+          map[p.id] = { pago: true, percentual: 100 };
+          saldoDisponivel -= comissao;
+        } else if (saldoDisponivel > 0) {
+          map[p.id] = { pago: false, percentual: Math.round((saldoDisponivel / comissao) * 100) };
+          saldoDisponivel = 0;
+        } else {
+          map[p.id] = { pago: false, percentual: 0 };
+        }
+      }
+    }
+    return map;
+  }, [pedidosParaSaldo, pagamentos]);
+
   // Filtered pedidos for Visão Geral
   const filteredPedidos = useMemo(() => {
     let filtered = [...allPedidos];
@@ -469,6 +505,19 @@ export default function Financeiro() {
     const com = Number(p.comissao);
     if (liq <= 0) return 0;
     return Math.round((com / liq) * 100 * 100) / 100;
+  };
+
+  // Badge de status de pagamento da comissão, calculado automaticamente
+  // pela alocação dos lançamentos (não é mais um campo editável por pedido)
+  const renderStatusComissao = (pedidoId: string) => {
+    const status = alocacaoPorPedido[pedidoId];
+    if (!status || status.percentual === 0) {
+      return <Badge variant="outline" className="text-muted-foreground font-normal">Pendente</Badge>;
+    }
+    if (status.pago) {
+      return <Badge className="bg-green-600 hover:bg-green-600 font-normal">Pago</Badge>;
+    }
+    return <Badge variant="secondary" className="font-normal">{status.percentual}% pago</Badge>;
   };
 
   return (
@@ -812,11 +861,12 @@ export default function Financeiro() {
                       <TableHead className="text-right">Líquido</TableHead>
                       <TableHead className="text-right">%</TableHead>
                       <TableHead className="text-right">Comissão</TableHead>
+                      <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {comissoesTodas.length === 0 ? (
-                      <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={13} className="text-center py-8 text-muted-foreground">Nenhuma comissão encontrada</TableCell></TableRow>
                     ) : (
                       comissoesTodas.map((p) => {
                         const vendedorItem = vendedores?.find((v) => v.id === p.vendedor_id);
@@ -874,6 +924,7 @@ export default function Financeiro() {
                               )}
                             </TableCell>
                             <TableCell className="text-right font-medium">{formatCurrency(Number(p.comissao))}</TableCell>
+                            <TableCell>{renderStatusComissao(p.id)}</TableCell>
                           </TableRow>
                         );
                       })
@@ -900,7 +951,10 @@ export default function Financeiro() {
                         <span className="font-medium text-sm">#{p.numero_pedido}</span>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">{p.cliente_nome} · {vendedorItem?.nome || "—"}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">{p.cliente_nome} · {vendedorItem?.nome || "—"}</p>
+                      {renderStatusComissao(p.id)}
+                    </div>
                     <p className="text-[10px] text-muted-foreground">Data: {format(new Date(p.data_pedido), "dd/MM/yyyy")}</p>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
                       <span>Bruto: <span className="text-foreground font-medium">{formatCurrency(Number(p.valor_bruto))}</span></span>
