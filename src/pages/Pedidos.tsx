@@ -45,7 +45,10 @@ export default function Pedidos() {
       });
       if (error) throw error;
       if (data?.success) {
-        toast.success(`Rastreio verificado! ${data.updated} atualizados, ${data.checked} sem novidades, ${data.no_data} sem dados.`);
+        const novos = data.pulled_from_superfrete || 0;
+        toast.success(
+          `Rastreio verificado! ${novos} encontrados direto na SuperFrete, ${data.updated} atualizados, ${data.checked} sem novidades, ${data.no_data} sem dados.`,
+        );
         queryClient.invalidateQueries({ queryKey: ["pedidos"] });
       } else {
         toast.error(data?.error || "Erro ao consultar rastreios");

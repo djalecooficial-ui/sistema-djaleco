@@ -7,6 +7,97 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// Normaliza nome pra comparação (minúsculo, sem acento, espaços colapsados)
+function normalizeName(name: string): string {
+  return (name || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Busca os envios na SuperFrete direto (GET /api/v0/me/orders) e casa com
+// pedidos que ainda não têm rastreio, pelo nome do destinatário + data
+// próxima do pedido. Necessário porque as etiquetas são geradas direto no
+// site da SuperFrete, sem passar pela Nuvemshop - o pedido na Nuvemshop
+// nunca recebe o código de volta, então não tem o que sincronizar de lá.
+async function pullFromSuperfrete(supabase: any) {
+  const apiKey = Deno.env.get("SUPERFRETE_API_KEY");
+  if (!apiKey) return { matched: 0, checked: 0 };
+
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    "User-Agent": "Djaleco App (contato@djaleco.com.br)",
+    Accept: "application/json",
+  };
+
+  // Junta os envios da SuperFrete das últimas páginas (ordenado por criação, mais recente primeiro)
+  const envios: any[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const res = await fetch(
+      `https://api.superfrete.com/api/v0/me/orders?page=${page}&per_page=100&sort_by=created_at&order=desc`,
+      { headers },
+    );
+    if (!res.ok) break;
+    const json = await res.json();
+    const batch = json?.data || [];
+    if (!batch.length) break;
+    envios.push(...batch);
+    if (batch.length < 100) break;
+  }
+
+  // Agrupa por nome normalizado do destinatário
+  const porNome = new Map<string, any[]>();
+  for (const e of envios) {
+    const nome = normalizeName(e?.to?.name);
+    if (!nome) continue;
+    if (!porNome.has(nome)) porNome.set(nome, []);
+    porNome.get(nome)!.push(e);
+  }
+
+  // Pedidos que ainda não têm nenhum rastreio vinculado
+  const seisMesesAtras = new Date();
+  seisMesesAtras.setMonth(seisMesesAtras.getMonth() - 6);
+  const { data: pedidosSemRastreio } = await supabase
+    .from("pedidos")
+    .select("id, numero_pedido, cliente_nome, data_pedido")
+    .is("rastreio_codigo", null)
+    .is("superfrete_order_id", null)
+    .gte("data_pedido", seisMesesAtras.toISOString());
+
+  let matched = 0;
+  for (const pedido of pedidosSemRastreio || []) {
+    const nome = normalizeName(pedido.cliente_nome);
+    const candidatos = porNome.get(nome);
+    if (!candidatos || candidatos.length === 0) continue;
+
+    // Se tiver mais de um envio com o mesmo nome, pega o mais próximo da data do pedido
+    const dataPedido = new Date(pedido.data_pedido).getTime();
+    candidatos.sort(
+      (a, b) =>
+        Math.abs(new Date(a.created_at).getTime() - dataPedido) -
+        Math.abs(new Date(b.created_at).getTime() - dataPedido),
+    );
+    const envio = candidatos[0];
+    const diffDias = Math.abs(new Date(envio.created_at).getTime() - dataPedido) / 86400000;
+    if (diffDias > 45) continue; // nome bate mas data longe demais - não arrisca
+
+    const updates: Record<string, any> = {};
+    if (envio.tracking) updates.rastreio_codigo = envio.tracking;
+    if (envio.status === "delivered") {
+      updates.etapa_producao = "Entregue";
+      updates.data_entrega = envio.updated_at ? new Date(envio.updated_at).toISOString() : new Date().toISOString();
+    }
+    if (Object.keys(updates).length === 0) continue;
+
+    const { error } = await supabase.from("pedidos").update(updates).eq("id", pedido.id);
+    if (!error) matched++;
+  }
+
+  return { matched, checked: (pedidosSemRastreio || []).length, total_superfrete: envios.length };
+}
+
 async function checkTracking(supabase: any, pedido: any) {
   const superfreteOrderId = pedido.superfrete_order_id;
   const trackingCode = pedido.rastreio_codigo;
@@ -108,15 +199,21 @@ serve(async (req) => {
   }
 
   try {
-    // Auth check
+    // Auth check — aceita usuário logado (botão na tela) ou o segredo do
+    // cron automático (CRON_SECRET), mesmo padrão do nuvemshop-sync
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    const authClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
-    const { data: { user }, error: userError } = await authClient.auth.getUser();
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const token = authHeader.slice(7);
+    const cronSecret = Deno.env.get("CRON_SECRET");
+    const isCron = !!cronSecret && token === cronSecret;
+    if (!isCron) {
+      const authClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: authHeader } } });
+      const { data: { user }, error: userError } = await authClient.auth.getUser();
+      if (userError || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -128,6 +225,10 @@ serve(async (req) => {
 
     // BATCH MODE: check all orders with tracking code but no delivery date
     if (batch) {
+      // Primeiro tenta casar pedidos sem rastreio nenhum com os envios
+      // direto da SuperFrete (etiquetas geradas fora da Nuvemshop)
+      const pull = await pullFromSuperfrete(supabase);
+
       const { data: pedidos, error } = await supabase
         .from("pedidos")
         .select("id, numero_pedido, rastreio_codigo, superfrete_order_id")
@@ -157,7 +258,15 @@ serve(async (req) => {
       const noData = results.filter((r: any) => r.status === "no_data").length;
 
       return new Response(
-        JSON.stringify({ success: true, total: validPedidos.length, updated, checked, no_data: noData, results }),
+        JSON.stringify({
+          success: true,
+          total: validPedidos.length,
+          updated,
+          checked,
+          no_data: noData,
+          results,
+          pulled_from_superfrete: pull.matched,
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
