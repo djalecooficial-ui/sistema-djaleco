@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.evolution-send-message]
 verify_jwt = false
+
+[functions.tiktok-oauth-callback]
+verify_jwt = false
